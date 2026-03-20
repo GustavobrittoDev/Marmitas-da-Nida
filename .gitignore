@@ -9,3 +9,5 @@ ifood-*.html
 measure.js
 vite.config.js
 vite.config.d.ts
+
+.vercel
