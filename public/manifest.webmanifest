@@ -1,0 +1,19 @@
+{
+  "name": "Marmitas da Nida",
+  "short_name": "Nida",
+  "description": "Aplicativo mobile-first para pedidos da Marmitas da Nida.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fff7ee",
+  "theme_color": "#f47b20",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "/icon-app.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
+

@@ -1,0 +1,11 @@
+node_modules
+dist
+.DS_Store
+*.log
+*.tsbuildinfo
+mobile-*.png
+mobile-*.html
+ifood-*.html
+measure.js
+vite.config.js
+vite.config.d.ts
