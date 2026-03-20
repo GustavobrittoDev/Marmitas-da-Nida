@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { AdminPanel } from './components/AdminPanel';
 import { Icon, IconName } from './components/Icon';
 import { seedSiteData } from './data/seedData';
@@ -259,12 +259,23 @@ function App() {
   const [deliveryInfo, setDeliveryInfo] = useState<DeliveryInfoState>(() =>
     getIdleDeliveryInfo(seedSiteData.site.deliveryPricing),
   );
+  const [cartAttentionActive, setCartAttentionActive] = useState(false);
+  const [cartAttentionLabel, setCartAttentionLabel] = useState('Toque para revisar e finalizar');
+  const cartAttentionTimeoutRef = useRef<number | null>(null);
   const restaurantLocation = siteData.site.restaurantLocation ?? seedSiteData.site.restaurantLocation;
   const deliveryPricing = siteData.site.deliveryPricing ?? seedSiteData.site.deliveryPricing;
 
   useEffect(() => {
     const interval = window.setInterval(() => setTimeTick(Date.now()), 60000);
     return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (cartAttentionTimeoutRef.current) {
+        window.clearTimeout(cartAttentionTimeoutRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -603,6 +614,38 @@ function App() {
       .reduce((sum, option) => sum + option.price, 0) ?? 0;
   const selectedSheetCanSubmit =
     !itemSheet || itemSheet.selectedAddonIds.length >= selectedSheetRules.minSelections;
+  const cartButtonLabel =
+    cartCount > 0
+      ? `${cartCount} ${cartCount === 1 ? 'item no carrinho' : 'itens no carrinho'}`
+      : 'Seu carrinho esta vazio';
+  const cartButtonCaption =
+    cartCount > 0
+      ? cartAttentionActive
+        ? cartAttentionLabel
+        : 'Toque para revisar e finalizar'
+      : 'Adicione um prato e abra aqui para finalizar.';
+
+  const triggerCartAttention = (label = 'Item adicionado. Abra o carrinho para finalizar.') => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    if (cartAttentionTimeoutRef.current) {
+      window.clearTimeout(cartAttentionTimeoutRef.current);
+    }
+
+    setCartAttentionLabel(label);
+    setCartAttentionActive(false);
+
+    window.requestAnimationFrame(() => {
+      setCartAttentionActive(true);
+    });
+
+    cartAttentionTimeoutRef.current = window.setTimeout(() => {
+      setCartAttentionActive(false);
+      setCartAttentionLabel('Toque para revisar e finalizar');
+    }, 1800);
+  };
 
   const getDefaultGroupSelection = (group: MenuGroup): MenuCardSelection => {
     const defaultItem = group.items.find((item) => item.available) ?? group.items[0];
@@ -717,6 +760,8 @@ function App() {
         selectedAddonIds: selection.selectedAddonIds,
       },
     ]);
+
+    triggerCartAttention();
   };
 
   const openCartItemEditor = (line: CartLine) => {
@@ -946,6 +991,7 @@ function App() {
       return;
     }
 
+    const shouldReturnToCart = Boolean(itemSheet.cartItemId);
     const nextCartItem = {
       id: itemSheet.cartItemId ?? `${itemSheet.selectedItemId}-${Date.now()}`,
       itemId: itemSheet.selectedItemId,
@@ -961,7 +1007,13 @@ function App() {
     );
 
     setItemSheet(null);
-    setCartOpen(true);
+
+    if (shouldReturnToCart) {
+      setCartOpen(true);
+      return;
+    }
+
+    triggerCartAttention();
   };
 
   const changeCartQuantity = (cartItemId: string, delta: number) => {
@@ -1276,12 +1328,19 @@ function App() {
 
       <button
         type="button"
-        className="floating-cart"
+        className={`floating-cart floating-cart-bar ${cartAttentionActive ? 'is-highlighted' : ''} ${cartCount ? 'has-items' : 'is-empty'}`}
         onClick={() => setCartOpen(true)}
         aria-label={`Abrir carrinho com ${cartCount} itens. Total ${formatCurrency(total)}`}
       >
-        <Icon name="cart" className="floating-icon" />
-        <span className="floating-cart-badge">{cartCount}</span>
+        <span className="floating-cart-icon-wrap">
+          <Icon name="cart" className="floating-icon" />
+          {cartCount ? <span className="floating-cart-badge">{cartCount}</span> : null}
+        </span>
+        <span className="floating-cart-copy">
+          <strong>{cartButtonLabel}</strong>
+          <span>{cartButtonCaption}</span>
+        </span>
+        <span className="floating-cart-total">{cartCount ? formatCurrency(total) : 'Abrir'}</span>
       </button>
 
       {itemSheet ? (
