@@ -167,10 +167,12 @@ export function AdminPanel({
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [loginError, setLoginError] = useState('');
   const [categoryForm, setCategoryForm] = useState<Category>(emptyCategory);
+  const [categoryEditorId, setCategoryEditorId] = useState<string | 'new' | null>(null);
   const [itemForm, setItemForm] = useState<ItemFormState>({
     ...emptyItem,
     categoryId: siteData.categories[0]?.id ?? '',
   });
+  const [itemEditorId, setItemEditorId] = useState<string | 'new' | null>(null);
 
   if (!open) {
     return null;
@@ -187,13 +189,6 @@ export function AdminPanel({
     setOpenSection((current) => (current === section ? null : section));
   };
 
-  const focusForm = (section: AdminSectionKey, anchorId: string) => {
-    setOpenSection(section);
-    window.setTimeout(() => {
-      document.getElementById(anchorId)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }, 80);
-  };
-
   const resetCategoryForm = () => {
     setCategoryForm(emptyCategory);
   };
@@ -203,6 +198,39 @@ export function AdminPanel({
       ...emptyItem,
       categoryId: siteData.categories[0]?.id ?? '',
     });
+  };
+
+  const startNewCategory = () => {
+    resetCategoryForm();
+    setCategoryEditorId('new');
+  };
+
+  const startEditCategory = (category: Category) => {
+    setCategoryForm(category);
+    setCategoryEditorId(category.id);
+  };
+
+  const cancelCategoryEdit = () => {
+    resetCategoryForm();
+    setCategoryEditorId(null);
+  };
+
+  const startNewItem = (categoryId?: string) => {
+    setItemForm({
+      ...emptyItem,
+      categoryId: categoryId ?? siteData.categories[0]?.id ?? '',
+    });
+    setItemEditorId('new');
+  };
+
+  const startEditItem = (item: MenuItem) => {
+    setItemForm(mapItemToForm(item));
+    setItemEditorId(item.id);
+  };
+
+  const cancelItemEdit = () => {
+    resetItemForm();
+    setItemEditorId(null);
   };
 
   const saveCategory = (event: FormEvent<HTMLFormElement>) => {
@@ -225,6 +253,7 @@ export function AdminPanel({
     });
 
     resetCategoryForm();
+    setCategoryEditorId(null);
   };
 
   const removeCategory = (categoryId: string) => {
@@ -240,10 +269,12 @@ export function AdminPanel({
 
     if (categoryForm.id === categoryId) {
       resetCategoryForm();
+      setCategoryEditorId(null);
     }
 
     if (itemForm.categoryId === categoryId) {
       resetItemForm();
+      setItemEditorId(null);
     }
   };
 
@@ -267,6 +298,10 @@ export function AdminPanel({
 
   const saveItem = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    if (!itemForm.categoryId) {
+      return;
+    }
 
     const nextItem: MenuItem = {
       id: itemForm.id || slugify(itemForm.name),
@@ -300,6 +335,7 @@ export function AdminPanel({
     });
 
     resetItemForm();
+    setItemEditorId(null);
   };
 
   const removeItem = (itemId: string) => {
@@ -314,6 +350,7 @@ export function AdminPanel({
 
     if (itemForm.id === itemId) {
       resetItemForm();
+      setItemEditorId(null);
     }
   };
 
@@ -334,6 +371,206 @@ export function AdminPanel({
   const deliverySummary = `Base ${formatCurrency(siteData.site.deliveryPricing.baseFee)} + ${formatCurrency(
     siteData.site.deliveryPricing.feeStep,
   )} a cada ${siteData.site.deliveryPricing.stepDistanceKm} km`;
+  const menuGroups = siteData.categories.map((category) => ({
+    category,
+    items: siteData.menu.filter((item) => item.categoryId === category.id),
+  }));
+  const uncategorizedItems = siteData.menu.filter(
+    (item) => !siteData.categories.some((category) => category.id === item.categoryId),
+  );
+
+  const renderCategoryForm = (submitLabel: string) => (
+    <form className="admin-grid two-columns top-gap inline-editor-form" onSubmit={saveCategory}>
+      <label className="field">
+        <span>Nome</span>
+        <input
+          value={categoryForm.name}
+          onChange={(event) =>
+            setCategoryForm((current) => ({ ...current, name: event.target.value }))
+          }
+          required
+        />
+      </label>
+      <label className="field">
+        <span>Descricao</span>
+        <input
+          value={categoryForm.description}
+          onChange={(event) =>
+            setCategoryForm((current) => ({
+              ...current,
+              description: event.target.value,
+            }))
+          }
+          required
+        />
+      </label>
+      <label className="field">
+        <span>Icone</span>
+        <select
+          value={categoryForm.icon}
+          onChange={(event) =>
+            setCategoryForm((current) => ({
+              ...current,
+              icon: event.target.value as CategoryIcon,
+            }))
+          }
+        >
+          {categoryIcons.map((icon) => (
+            <option key={icon} value={icon}>
+              {icon}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="field action-row align-end">
+        <button type="submit" className="primary-button">
+          {submitLabel}
+        </button>
+        <button type="button" className="secondary-button" onClick={cancelCategoryEdit}>
+          Cancelar
+        </button>
+      </div>
+    </form>
+  );
+
+  const renderItemForm = (submitLabel: string) => (
+    <form className="admin-grid two-columns top-gap inline-editor-form" onSubmit={saveItem}>
+      <label className="field">
+        <span>Categoria</span>
+        <select
+          value={itemForm.categoryId}
+          onChange={(event) =>
+            setItemForm((current) => ({ ...current, categoryId: event.target.value }))
+          }
+          required
+        >
+          <option value="" disabled>
+            Escolha uma categoria
+          </option>
+          {siteData.categories.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="field">
+        <span>Nome</span>
+        <input
+          value={itemForm.name}
+          onChange={(event) => setItemForm((current) => ({ ...current, name: event.target.value }))}
+          required
+        />
+      </label>
+      <label className="field full-span">
+        <span>Descricao</span>
+        <textarea
+          rows={3}
+          value={itemForm.description}
+          onChange={(event) =>
+            setItemForm((current) => ({ ...current, description: event.target.value }))
+          }
+          required
+        />
+      </label>
+      <label className="field">
+        <span>Preco</span>
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          value={itemForm.price}
+          onChange={(event) => setItemForm((current) => ({ ...current, price: event.target.value }))}
+          required
+        />
+      </label>
+      <label className="field">
+        <span>Imagem opcional</span>
+        <input
+          value={itemForm.image}
+          onChange={(event) => setItemForm((current) => ({ ...current, image: event.target.value }))}
+          placeholder="/images/produtos/meu-prato.jpg"
+        />
+      </label>
+      <label className="field">
+        <span>Tempo de preparo</span>
+        <input
+          value={itemForm.prepTime}
+          onChange={(event) =>
+            setItemForm((current) => ({ ...current, prepTime: event.target.value }))
+          }
+          required
+        />
+      </label>
+      <label className="field">
+        <span>Tags</span>
+        <input
+          value={itemForm.tags}
+          onChange={(event) => setItemForm((current) => ({ ...current, tags: event.target.value }))}
+        />
+      </label>
+      <label className="field">
+        <span>Titulo dos adicionais</span>
+        <input
+          value={itemForm.addonTitle}
+          onChange={(event) =>
+            setItemForm((current) => ({ ...current, addonTitle: event.target.value }))
+          }
+        />
+      </label>
+      <label className="field full-span">
+        <span>Adicionais</span>
+        <textarea
+          rows={4}
+          value={itemForm.addonOptions}
+          onChange={(event) =>
+            setItemForm((current) => ({ ...current, addonOptions: event.target.value }))
+          }
+          placeholder="Um por linha: Nome: 4.50"
+        />
+      </label>
+      <div className="toggle-group full-span">
+        <label className="toggle-option">
+          <input
+            type="checkbox"
+            checked={itemForm.available}
+            onChange={(event) =>
+              setItemForm((current) => ({ ...current, available: event.target.checked }))
+            }
+          />
+          <span>Disponivel</span>
+        </label>
+        <label className="toggle-option">
+          <input
+            type="checkbox"
+            checked={itemForm.featured}
+            onChange={(event) =>
+              setItemForm((current) => ({ ...current, featured: event.target.checked }))
+            }
+          />
+          <span>Destaque</span>
+        </label>
+        <label className="toggle-option">
+          <input
+            type="checkbox"
+            checked={itemForm.dishOfDay}
+            onChange={(event) =>
+              setItemForm((current) => ({ ...current, dishOfDay: event.target.checked }))
+            }
+          />
+          <span>Prato do dia</span>
+        </label>
+      </div>
+      <div className="field action-row full-span">
+        <button type="submit" className="primary-button" disabled={!siteData.categories.length}>
+          {submitLabel}
+        </button>
+        <button type="button" className="secondary-button" onClick={cancelItemEdit}>
+          Cancelar
+        </button>
+      </div>
+    </form>
+  );
 
   return (
     <div className="overlay-shell">
@@ -594,310 +831,285 @@ export function AdminPanel({
                   eyebrow="Cardapio"
                   title="Categorias e itens do cardapio"
                   summary={`${siteData.categories.length} categorias e ${siteData.menu.length} itens cadastrados`}
-                  meta="Clique em editar para carregar os dados no formulario logo abaixo."
+                  meta="Tudo abre e edita no mesmo lugar da lista."
                 >
                   <section className="admin-section">
                     <div className="admin-card">
-                      <h3>Categorias</h3>
-                      <div className="stack-list">
+                      <div className="admin-card-header">
+                        <div className="admin-section-heading">
+                          <h3>Categorias</h3>
+                          <p>As categorias ficam todas nesta lista e cada edicao abre no proprio bloco.</p>
+                        </div>
+                        <button type="button" className="secondary-button" onClick={startNewCategory}>
+                          Nova categoria
+                        </button>
+                      </div>
+
+                      {categoryEditorId === 'new' ? (
+                        <div className="inline-edit-card top-gap">
+                          <div className="inline-edit-header">
+                            <strong>Nova categoria</strong>
+                            <p>Crie uma nova gaveta do cardapio sem sair desta area.</p>
+                          </div>
+                          {renderCategoryForm('Adicionar categoria')}
+                        </div>
+                      ) : null}
+
+                      <div className="stack-list top-gap">
                         {siteData.categories.map((category, index) => (
-                          <div key={category.id} className="admin-row-card">
-                            <div className="row-main">
-                              <div className="category-badge">
-                                <Icon name={category.icon} className="small-icon" />
+                          <div
+                            key={category.id}
+                            className={`admin-row-card ${categoryEditorId === category.id ? 'is-editing' : ''}`}
+                          >
+                            <div className="admin-inline-block">
+                              <div className="row-main">
+                                <div className="category-badge">
+                                  <Icon name={category.icon} className="small-icon" />
+                                </div>
+                                <div>
+                                  <strong>{category.name}</strong>
+                                  <p>{category.description}</p>
+                                </div>
                               </div>
-                              <div>
-                                <strong>{category.name}</strong>
-                                <p>{category.description}</p>
+                              <div className="row-actions">
+                                <button
+                                  type="button"
+                                  className="ghost-button"
+                                  onClick={() => moveCategory(category.id, -1)}
+                                  disabled={index === 0}
+                                >
+                                  Subir
+                                </button>
+                                <button
+                                  type="button"
+                                  className="ghost-button"
+                                  onClick={() => moveCategory(category.id, 1)}
+                                  disabled={index === siteData.categories.length - 1}
+                                >
+                                  Descer
+                                </button>
+                                <button
+                                  type="button"
+                                  className="ghost-button"
+                                  onClick={() => startEditCategory(category)}
+                                >
+                                  Editar
+                                </button>
+                                <button
+                                  type="button"
+                                  className="ghost-button danger-button"
+                                  onClick={() => removeCategory(category.id)}
+                                >
+                                  Remover
+                                </button>
                               </div>
                             </div>
-                            <div className="row-actions">
-                              <button
-                                type="button"
-                                className="ghost-button"
-                                onClick={() => moveCategory(category.id, -1)}
-                                disabled={index === 0}
-                              >
-                                Subir
-                              </button>
-                              <button
-                                type="button"
-                                className="ghost-button"
-                                onClick={() => moveCategory(category.id, 1)}
-                                disabled={index === siteData.categories.length - 1}
-                              >
-                                Descer
-                              </button>
-                              <button
-                                type="button"
-                                className="ghost-button"
-                                onClick={() => {
-                                  setCategoryForm(category);
-                                  focusForm('menu', 'admin-category-form');
-                                }}
-                              >
-                                Editar
-                              </button>
-                              <button
-                                type="button"
-                                className="ghost-button danger-button"
-                                onClick={() => removeCategory(category.id)}
-                              >
-                                Remover
-                              </button>
-                            </div>
+
+                            {categoryEditorId === category.id ? (
+                              <div className="inline-edit-card">
+                                <div className="inline-edit-header">
+                                  <strong>Editando categoria</strong>
+                                  <p>As alteracoes feitas aqui substituem esta categoria na hora.</p>
+                                </div>
+                                {renderCategoryForm('Salvar categoria')}
+                              </div>
+                            ) : null}
                           </div>
                         ))}
                       </div>
-
-                      <form
-                        id="admin-category-form"
-                        className="admin-grid two-columns top-gap"
-                        onSubmit={saveCategory}
-                      >
-                        <label className="field">
-                          <span>Nome</span>
-                          <input
-                            value={categoryForm.name}
-                            onChange={(event) =>
-                              setCategoryForm((current) => ({ ...current, name: event.target.value }))
-                            }
-                            required
-                          />
-                        </label>
-                        <label className="field">
-                          <span>Descricao</span>
-                          <input
-                            value={categoryForm.description}
-                            onChange={(event) =>
-                              setCategoryForm((current) => ({
-                                ...current,
-                                description: event.target.value,
-                              }))
-                            }
-                            required
-                          />
-                        </label>
-                        <label className="field">
-                          <span>Icone</span>
-                          <select
-                            value={categoryForm.icon}
-                            onChange={(event) =>
-                              setCategoryForm((current) => ({
-                                ...current,
-                                icon: event.target.value as CategoryIcon,
-                              }))
-                            }
-                          >
-                            {categoryIcons.map((icon) => (
-                              <option key={icon} value={icon}>
-                                {icon}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <div className="field action-row">
-                          <button type="submit" className="primary-button">
-                            {categoryForm.id ? 'Salvar categoria' : 'Adicionar categoria'}
-                          </button>
-                          <button type="button" className="secondary-button" onClick={resetCategoryForm}>
-                            Limpar
-                          </button>
-                        </div>
-                      </form>
                     </div>
 
                     <div className="admin-card">
-                      <h3>Itens do cardapio</h3>
-                      <div className="menu-admin-grid">
-                        {siteData.menu.map((item) => (
-                          <article key={item.id} className="menu-admin-card">
-                            {item.image ? (
-                              <img src={item.image} alt={item.name} />
-                            ) : (
-                              <div className="menu-admin-image-placeholder">Sem imagem</div>
-                            )}
-                            <div>
-                              <div className="menu-admin-header">
-                                <strong>{item.name}</strong>
-                                <span>{formatCurrency(item.price)}</span>
+                      <div className="admin-card-header">
+                        <div className="admin-section-heading">
+                          <h3>Itens do cardapio</h3>
+                          <p>
+                            Os itens ficam agrupados por categoria para voce encontrar e editar tudo no
+                            proprio lugar.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => startNewItem(siteData.categories[0]?.id)}
+                          disabled={!siteData.categories.length}
+                        >
+                          Novo item
+                        </button>
+                      </div>
+
+                      {!siteData.categories.length ? (
+                        <div className="inline-edit-card top-gap">
+                          <div className="inline-edit-header">
+                            <strong>Crie uma categoria primeiro</strong>
+                            <p>O novo item precisa de uma categoria para aparecer no cardapio.</p>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      <div className="stack-list top-gap">
+                        {menuGroups.map(({ category, items }) => (
+                          <section key={category.id} className="admin-group-card">
+                            <div className="admin-group-header">
+                              <div className="admin-group-copy">
+                                <div className="category-badge">
+                                  <Icon name={category.icon} className="small-icon" />
+                                  <span>{category.name}</span>
+                                </div>
+                                <p>{items.length} item(ns) nesta categoria</p>
                               </div>
-                              <p>{item.description}</p>
-                              <div className="chip-row">
-                                <span className={`mini-chip ${item.available ? 'success-chip' : 'muted-chip'}`}>
-                                  {item.available ? 'Disponivel' : 'Indisponivel'}
-                                </span>
-                                {item.dishOfDay ? <span className="mini-chip accent-chip">Prato do dia</span> : null}
-                              </div>
-                            </div>
-                            <div className="row-actions">
                               <button
                                 type="button"
                                 className="ghost-button"
-                                onClick={() => {
-                                  setItemForm(mapItemToForm(item));
-                                  focusForm('menu', 'admin-item-form');
-                                }}
+                                onClick={() => startNewItem(category.id)}
                               >
-                                Editar
-                              </button>
-                              <button
-                                type="button"
-                                className="ghost-button danger-button"
-                                onClick={() => removeItem(item.id)}
-                              >
-                                Remover
+                                Novo item nesta categoria
                               </button>
                             </div>
-                          </article>
-                        ))}
-                      </div>
 
-                      <form
-                        id="admin-item-form"
-                        className="admin-grid two-columns top-gap"
-                        onSubmit={saveItem}
-                      >
-                        <label className="field">
-                          <span>Categoria</span>
-                          <select
-                            value={itemForm.categoryId}
-                            onChange={(event) =>
-                              setItemForm((current) => ({ ...current, categoryId: event.target.value }))
-                            }
-                            required
-                          >
-                            {siteData.categories.map((category) => (
-                              <option key={category.id} value={category.id}>
-                                {category.name}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="field">
-                          <span>Nome</span>
-                          <input
-                            value={itemForm.name}
-                            onChange={(event) =>
-                              setItemForm((current) => ({ ...current, name: event.target.value }))
-                            }
-                            required
-                          />
-                        </label>
-                        <label className="field full-span">
-                          <span>Descricao</span>
-                          <textarea
-                            rows={3}
-                            value={itemForm.description}
-                            onChange={(event) =>
-                              setItemForm((current) => ({ ...current, description: event.target.value }))
-                            }
-                            required
-                          />
-                        </label>
-                        <label className="field">
-                          <span>Preco</span>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={itemForm.price}
-                            onChange={(event) =>
-                              setItemForm((current) => ({ ...current, price: event.target.value }))
-                            }
-                            required
-                          />
-                        </label>
-                        <label className="field">
-                          <span>Imagem opcional</span>
-                          <input
-                            value={itemForm.image}
-                            onChange={(event) =>
-                              setItemForm((current) => ({ ...current, image: event.target.value }))
-                            }
-                            placeholder="/images/produtos/meu-prato.jpg"
-                          />
-                        </label>
-                        <label className="field">
-                          <span>Tempo de preparo</span>
-                          <input
-                            value={itemForm.prepTime}
-                            onChange={(event) =>
-                              setItemForm((current) => ({ ...current, prepTime: event.target.value }))
-                            }
-                            required
-                          />
-                        </label>
-                        <label className="field">
-                          <span>Tags</span>
-                          <input
-                            value={itemForm.tags}
-                            onChange={(event) =>
-                              setItemForm((current) => ({ ...current, tags: event.target.value }))
-                            }
-                          />
-                        </label>
-                        <label className="field">
-                          <span>Titulo dos adicionais</span>
-                          <input
-                            value={itemForm.addonTitle}
-                            onChange={(event) =>
-                              setItemForm((current) => ({ ...current, addonTitle: event.target.value }))
-                            }
-                          />
-                        </label>
-                        <label className="field full-span">
-                          <span>Adicionais</span>
-                          <textarea
-                            rows={4}
-                            value={itemForm.addonOptions}
-                            onChange={(event) =>
-                              setItemForm((current) => ({ ...current, addonOptions: event.target.value }))
-                            }
-                            placeholder="Um por linha: Nome: 4.50"
-                          />
-                        </label>
-                        <div className="toggle-group full-span">
-                          <label className="toggle-option">
-                            <input
-                              type="checkbox"
-                              checked={itemForm.available}
-                              onChange={(event) =>
-                                setItemForm((current) => ({ ...current, available: event.target.checked }))
-                              }
-                            />
-                            <span>Disponivel</span>
-                          </label>
-                          <label className="toggle-option">
-                            <input
-                              type="checkbox"
-                              checked={itemForm.featured}
-                              onChange={(event) =>
-                                setItemForm((current) => ({ ...current, featured: event.target.checked }))
-                              }
-                            />
-                            <span>Destaque</span>
-                          </label>
-                          <label className="toggle-option">
-                            <input
-                              type="checkbox"
-                              checked={itemForm.dishOfDay}
-                              onChange={(event) =>
-                                setItemForm((current) => ({ ...current, dishOfDay: event.target.checked }))
-                              }
-                            />
-                            <span>Prato do dia</span>
-                          </label>
-                        </div>
-                        <div className="field action-row full-span">
-                          <button type="submit" className="primary-button">
-                            {itemForm.id ? 'Salvar item' : 'Adicionar item'}
-                          </button>
-                          <button type="button" className="secondary-button" onClick={resetItemForm}>
-                            Novo item
-                          </button>
-                        </div>
-                      </form>
+                            {itemEditorId === 'new' && itemForm.categoryId === category.id ? (
+                              <div className="inline-edit-card top-gap">
+                                <div className="inline-edit-header">
+                                  <strong>Novo item do cardapio</strong>
+                                  <p>Preencha os campos abaixo e o novo item entra nesta categoria.</p>
+                                </div>
+                                {renderItemForm('Adicionar item')}
+                              </div>
+                            ) : null}
+
+                            <div className="menu-admin-grid">
+                              {items.map((item) => (
+                                <article
+                                  key={item.id}
+                                  className={`menu-admin-card ${itemEditorId === item.id ? 'is-editing' : ''}`}
+                                >
+                                  {item.image ? (
+                                    <img src={item.image} alt={item.name} />
+                                  ) : (
+                                    <div className="menu-admin-image-placeholder">Sem imagem</div>
+                                  )}
+                                  <div>
+                                    <div className="menu-admin-header">
+                                      <strong>{item.name}</strong>
+                                      <span>{formatCurrency(item.price)}</span>
+                                    </div>
+                                    <p>{item.description}</p>
+                                    <div className="chip-row">
+                                      <span
+                                        className={`mini-chip ${
+                                          item.available ? 'success-chip' : 'muted-chip'
+                                        }`}
+                                      >
+                                        {item.available ? 'Disponivel' : 'Indisponivel'}
+                                      </span>
+                                      {item.dishOfDay ? (
+                                        <span className="mini-chip accent-chip">Prato do dia</span>
+                                      ) : null}
+                                      {item.featured ? (
+                                        <span className="mini-chip accent-chip">Destaque</span>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                  <div className="row-actions">
+                                    <button
+                                      type="button"
+                                      className="ghost-button"
+                                      onClick={() => startEditItem(item)}
+                                    >
+                                      Editar
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="ghost-button danger-button"
+                                      onClick={() => removeItem(item.id)}
+                                    >
+                                      Remover
+                                    </button>
+                                  </div>
+
+                                  {itemEditorId === item.id ? (
+                                    <div className="inline-edit-card">
+                                      <div className="inline-edit-header">
+                                        <strong>Editando item</strong>
+                                        <p>As opcoes deste prato abrem no mesmo card para facilitar a edicao.</p>
+                                      </div>
+                                      {renderItemForm('Salvar item')}
+                                    </div>
+                                  ) : null}
+                                </article>
+                              ))}
+                            </div>
+
+                            {!items.length ? (
+                              <div className="admin-inline-empty">
+                                Nenhum item cadastrado nesta categoria ainda.
+                              </div>
+                            ) : null}
+                          </section>
+                        ))}
+
+                        {uncategorizedItems.length ? (
+                          <section className="admin-group-card">
+                            <div className="admin-group-header">
+                              <div className="admin-group-copy">
+                                <div className="category-badge">
+                                  <Icon name="plus" className="small-icon" />
+                                  <span>Sem categoria</span>
+                                </div>
+                                <p>Itens antigos ou sem categoria vinculada.</p>
+                              </div>
+                            </div>
+
+                            <div className="menu-admin-grid">
+                              {uncategorizedItems.map((item) => (
+                                <article
+                                  key={item.id}
+                                  className={`menu-admin-card ${itemEditorId === item.id ? 'is-editing' : ''}`}
+                                >
+                                  {item.image ? (
+                                    <img src={item.image} alt={item.name} />
+                                  ) : (
+                                    <div className="menu-admin-image-placeholder">Sem imagem</div>
+                                  )}
+                                  <div>
+                                    <div className="menu-admin-header">
+                                      <strong>{item.name}</strong>
+                                      <span>{formatCurrency(item.price)}</span>
+                                    </div>
+                                    <p>{item.description}</p>
+                                  </div>
+                                  <div className="row-actions">
+                                    <button
+                                      type="button"
+                                      className="ghost-button"
+                                      onClick={() => startEditItem(item)}
+                                    >
+                                      Editar
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="ghost-button danger-button"
+                                      onClick={() => removeItem(item.id)}
+                                    >
+                                      Remover
+                                    </button>
+                                  </div>
+
+                                  {itemEditorId === item.id ? (
+                                    <div className="inline-edit-card">
+                                      <div className="inline-edit-header">
+                                        <strong>Editando item sem categoria</strong>
+                                        <p>Escolha uma categoria e salve para organizar este prato.</p>
+                                      </div>
+                                      {renderItemForm('Salvar item')}
+                                    </div>
+                                  ) : null}
+                                </article>
+                              ))}
+                            </div>
+                          </section>
+                        ) : null}
+                      </div>
                     </div>
                   </section>
                 </AdminDrawerSection>
@@ -908,7 +1120,7 @@ export function AdminPanel({
                   icon="lock"
                   eyebrow="Configuracoes"
                   title="Contato, horario, entrega e acesso"
-                  summary={`${siteData.site.businessName} • ${siteData.site.phone}`}
+                  summary={`${siteData.site.businessName} - ${siteData.site.phone}`}
                   meta={deliverySummary}
                 >
                   <section className="admin-section">
