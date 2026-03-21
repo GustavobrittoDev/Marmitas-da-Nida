@@ -29,7 +29,7 @@ type AdminPanelProps = {
   onChange: (next: SiteData) => void;
 };
 
-type AdminSectionKey = 'orders' | 'overview' | 'home' | 'menu' | 'settings';
+type AdminSectionKey = 'orders' | 'home' | 'menu' | 'settings';
 
 type ItemFormState = {
   id: string | null;
@@ -930,28 +930,6 @@ export function AdminPanel({
                         onRefresh={onRefreshOrders}
                         onStatusChange={onUpdateOrderStatus}
                       />
-                    </div>
-                  </section>
-                </AdminDrawerSection>
-
-                <AdminDrawerSection
-                  sectionKey="overview"
-                  openSection={openSection}
-                  onToggle={toggleSection}
-                  icon="sparkles"
-                  eyebrow="Resumo"
-                  title="Visao geral da operacao"
-                  summary="Tenha uma visao rapida do projeto antes de editar os blocos abaixo."
-                  meta={`${siteData.menu.length} itens cadastrados no total`}
-                >
-                  <section className="admin-section">
-                    <div className="admin-card">
-                      <h3>Resumo do projeto</h3>
-                      <ul className="plain-list admin-bullet-list">
-                        <li>Home, banner e destaques ficam concentrados na gaveta Home.</li>
-                        <li>Categorias e itens do cardapio ficam juntos na gaveta Cardapio.</li>
-                        <li>Contato, horario, entrega e acesso ao painel ficam em Configuracoes.</li>
-                      </ul>
                     </div>
                   </section>
                 </AdminDrawerSection>
