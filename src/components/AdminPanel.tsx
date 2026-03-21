@@ -6,9 +6,16 @@ import { Icon, IconName } from './Icon';
 type AdminPanelProps = {
   open: boolean;
   authenticated: boolean;
+  authMode: 'local' | 'supabase';
+  syncStatus: 'local' | 'connecting' | 'online' | 'saving' | 'error';
+  syncError: string;
+  adminUserEmail: string | null;
   onClose: () => void;
-  onLogin: (username: string, password: string) => boolean;
-  onLogout: () => void;
+  onLogin: (
+    username: string,
+    password: string,
+  ) => Promise<{ success: boolean; error?: string }>;
+  onLogout: () => Promise<void> | void;
   siteData: SiteData;
   onChange: (next: SiteData) => void;
 };
@@ -157,6 +164,10 @@ function AdminDrawerSection({
 export function AdminPanel({
   open,
   authenticated,
+  authMode,
+  syncStatus,
+  syncError,
+  adminUserEmail,
   onClose,
   onLogin,
   onLogout,
@@ -166,6 +177,7 @@ export function AdminPanel({
   const [openSection, setOpenSection] = useState<AdminSectionKey | null>('overview');
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [loginError, setLoginError] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
   const [categoryForm, setCategoryForm] = useState<Category>(emptyCategory);
   const [categoryEditorId, setCategoryEditorId] = useState<string | 'new' | null>(null);
   const [itemForm, setItemForm] = useState<ItemFormState>({
@@ -354,11 +366,24 @@ export function AdminPanel({
     }
   };
 
-  const handleLogin = (event: FormEvent<HTMLFormElement>) => {
+  const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!onLogin(loginForm.username, loginForm.password)) {
-      setLoginError('Login ou senha incorretos.');
+    setLoginLoading(true);
+    let result: { success: boolean; error?: string };
+
+    try {
+      result = await onLogin(loginForm.username, loginForm.password);
+    } catch {
+      setLoginLoading(false);
+      setLoginError('Nao foi possivel entrar no painel.');
+      return;
+    }
+
+    setLoginLoading(false);
+
+    if (!result.success) {
+      setLoginError(result.error || 'Nao foi possivel entrar no painel.');
       return;
     }
 
@@ -371,6 +396,20 @@ export function AdminPanel({
   const deliverySummary = `Base ${formatCurrency(siteData.site.deliveryPricing.baseFee)} + ${formatCurrency(
     siteData.site.deliveryPricing.feeStep,
   )} a cada ${siteData.site.deliveryPricing.stepDistanceKm} km`;
+  const syncBadgeLabel =
+    syncStatus === 'local'
+      ? 'Modo local'
+      : syncStatus === 'connecting'
+        ? 'Conectando'
+        : syncStatus === 'saving'
+          ? 'Salvando online'
+          : syncStatus === 'error'
+            ? 'Erro de sincronizacao'
+            : 'Sincronizado online';
+  const syncDescription =
+    authMode === 'supabase'
+      ? 'As alteracoes salvas aqui vao para o banco online e aparecem para todos.'
+      : 'Sem Supabase configurado, as alteracoes ficam somente neste navegador.';
   const menuGroups = siteData.categories.map((category) => ({
     category,
     items: siteData.menu.filter((item) => item.categoryId === category.id),
@@ -593,16 +632,24 @@ export function AdminPanel({
             </div>
             <h3>Faca login para editar a Marmitas da Nida</h3>
             <p>
-              Credenciais iniciais do projeto: <strong>admin</strong> / <strong>nida123</strong>.
+              {authMode === 'supabase'
+                ? 'Use o email e a senha cadastrados no Supabase Auth para publicar alteracoes para todos.'
+                : (
+                    <>
+                      Credenciais iniciais do projeto: <strong>admin</strong> /{' '}
+                      <strong>nida123</strong>.
+                    </>
+                  )}
             </p>
             <form className="admin-grid" onSubmit={handleLogin}>
               <label className="field">
-                <span>Login</span>
+                <span>{authMode === 'supabase' ? 'Email' : 'Login'}</span>
                 <input
                   value={loginForm.username}
                   onChange={(event) =>
                     setLoginForm((current) => ({ ...current, username: event.target.value }))
                   }
+                  type={authMode === 'supabase' ? 'email' : 'text'}
                   required
                 />
               </label>
@@ -618,8 +665,13 @@ export function AdminPanel({
                 />
               </label>
               {loginError ? <p className="error-text">{loginError}</p> : null}
-              <button type="submit" className="primary-button wide-button">
-                Entrar
+              {authMode === 'supabase' && syncStatus === 'error' ? (
+                <p className="error-text">
+                  {syncError || 'Configure o Supabase para habilitar o painel online.'}
+                </p>
+              ) : null}
+              <button type="submit" className="primary-button wide-button" disabled={loginLoading}>
+                {loginLoading ? 'Entrando...' : 'Entrar'}
               </button>
             </form>
           </div>
@@ -627,11 +679,13 @@ export function AdminPanel({
           <>
             <div className="admin-panel-toolbar">
               <div className="admin-toolbar-copy">
-                <span className="pill-label">Edicao por gavetas</span>
+                <span className="pill-label">{syncBadgeLabel}</span>
                 <strong>Abra um topico, ajuste os campos e siga para o proximo sem trocar de tela.</strong>
-                <p>Todas as alteracoes feitas aqui ficam salvas automaticamente.</p>
+                <p>{syncDescription}</p>
+                {adminUserEmail ? <p>Logado como {adminUserEmail}.</p> : null}
+                {syncStatus === 'error' && syncError ? <p className="error-text">{syncError}</p> : null}
               </div>
-              <button type="button" className="secondary-button" onClick={onLogout}>
+              <button type="button" className="secondary-button" onClick={() => void onLogout()}>
                 Sair
               </button>
             </div>
@@ -1448,47 +1502,57 @@ export function AdminPanel({
                       </div>
                     </div>
 
-                    <div className="admin-card">
-                      <h3>Acesso ao painel</h3>
-                      <div className="admin-grid two-columns">
-                        <label className="field">
-                          <span>Login</span>
-                          <input
-                            value={siteData.site.adminCredentials.username}
-                            onChange={(event) =>
-                              commit({
-                                ...siteData,
-                                site: {
-                                  ...siteData.site,
-                                  adminCredentials: {
-                                    ...siteData.site.adminCredentials,
-                                    username: event.target.value,
+                    {authMode === 'local' ? (
+                      <div className="admin-card">
+                        <h3>Acesso ao painel</h3>
+                        <div className="admin-grid two-columns">
+                          <label className="field">
+                            <span>Login</span>
+                            <input
+                              value={siteData.site.adminCredentials.username}
+                              onChange={(event) =>
+                                commit({
+                                  ...siteData,
+                                  site: {
+                                    ...siteData.site,
+                                    adminCredentials: {
+                                      ...siteData.site.adminCredentials,
+                                      username: event.target.value,
+                                    },
                                   },
-                                },
-                              })
-                            }
-                          />
-                        </label>
-                        <label className="field">
-                          <span>Senha</span>
-                          <input
-                            value={siteData.site.adminCredentials.password}
-                            onChange={(event) =>
-                              commit({
-                                ...siteData,
-                                site: {
-                                  ...siteData.site,
-                                  adminCredentials: {
-                                    ...siteData.site.adminCredentials,
-                                    password: event.target.value,
+                                })
+                              }
+                            />
+                          </label>
+                          <label className="field">
+                            <span>Senha</span>
+                            <input
+                              value={siteData.site.adminCredentials.password}
+                              onChange={(event) =>
+                                commit({
+                                  ...siteData,
+                                  site: {
+                                    ...siteData.site,
+                                    adminCredentials: {
+                                      ...siteData.site.adminCredentials,
+                                      password: event.target.value,
+                                    },
                                   },
-                                },
-                              })
-                            }
-                          />
-                        </label>
+                                })
+                              }
+                            />
+                          </label>
+                        </div>
                       </div>
-                    </div>
+                    ) : (
+                      <div className="admin-card">
+                        <h3>Acesso ao painel</h3>
+                        <p>
+                          O acesso online agora e controlado pelo Supabase Auth. Crie ou convide os
+                          administradores pelo painel do Supabase para publicar alteracoes para todos.
+                        </p>
+                      </div>
+                    )}
                   </section>
                 </AdminDrawerSection>
               </div>

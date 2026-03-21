@@ -1,8 +1,11 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
+import { Session } from '@supabase/supabase-js';
 import { AdminPanel } from './components/AdminPanel';
 import { Icon, IconName } from './components/Icon';
 import { seedSiteData } from './data/seedData';
 import { usePersistentState } from './hooks/usePersistentState';
+import { fetchRemoteSiteData, saveRemoteSiteData, subscribeToRemoteSiteData } from './lib/siteState';
+import { isSupabaseConfigured, supabase } from './lib/supabase';
 import { AddonOption, CartItem, CheckoutData, MenuItem, SiteData } from './types';
 import { getBusinessStatus } from './utils/business';
 import {
@@ -66,6 +69,8 @@ type DeliveryInfoState =
   | ReturnType<typeof getErrorDeliveryInfo>
   | ReturnType<typeof getLoadingDeliveryInfo>
   | ReturnType<typeof calculateDeliveryInfo>;
+type AdminAuthMode = 'local' | 'supabase';
+type SyncStatus = 'local' | 'connecting' | 'online' | 'saving' | 'error';
 
 const siteDataStorageKey = 'nida-site-data-v2';
 const siteDataSourceStorageKey = 'nida-site-data-source';
@@ -254,7 +259,17 @@ function App() {
   const [openInfoDrawer, setOpenInfoDrawer] = useState<InfoDrawerKey | null>(null);
   const [openMenuGroupId, setOpenMenuGroupId] = useState<string | null>(null);
   const [menuCardSelections, setMenuCardSelections] = useState<Record<string, MenuCardSelection>>({});
-  const [adminAuthenticated, setAdminAuthenticated] = usePersistentState('nida-admin-auth', false);
+  const [localAdminAuthenticated, setLocalAdminAuthenticated] = usePersistentState(
+    'nida-admin-auth',
+    false,
+  );
+  const [remoteAdminAuthenticated, setRemoteAdminAuthenticated] = useState(false);
+  const [adminSessionEmail, setAdminSessionEmail] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>(
+    isSupabaseConfigured ? 'connecting' : 'local',
+  );
+  const [syncError, setSyncError] = useState('');
+  const [remoteReady, setRemoteReady] = useState(!isSupabaseConfigured);
   const [, setTimeTick] = useState(Date.now());
   const [deliveryInfo, setDeliveryInfo] = useState<DeliveryInfoState>(() =>
     getIdleDeliveryInfo(seedSiteData.site.deliveryPricing),
@@ -262,6 +277,12 @@ function App() {
   const [cartAttentionActive, setCartAttentionActive] = useState(false);
   const [cartAttentionLabel, setCartAttentionLabel] = useState('Toque para revisar e finalizar');
   const cartAttentionTimeoutRef = useRef<number | null>(null);
+  const skipRemoteSaveRef = useRef(false);
+  const siteDataRef = useRef(siteData);
+  const authMode: AdminAuthMode = isSupabaseConfigured ? 'supabase' : 'local';
+  const adminAuthenticated = isSupabaseConfigured
+    ? remoteAdminAuthenticated
+    : localAdminAuthenticated;
   const restaurantLocation = siteData.site.restaurantLocation ?? seedSiteData.site.restaurantLocation;
   const deliveryPricing = siteData.site.deliveryPricing ?? seedSiteData.site.deliveryPricing;
 
@@ -269,6 +290,10 @@ function App() {
     const interval = window.setInterval(() => setTimeTick(Date.now()), 60000);
     return () => window.clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    siteDataRef.current = siteData;
+  }, [siteData]);
 
   useEffect(() => {
     return () => {
@@ -279,6 +304,168 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) {
+      return;
+    }
+
+    const supabaseClient = supabase;
+    let isActive = true;
+
+    const applyRemoteSiteData = (nextSiteData: SiteData) => {
+      if (!isActive) {
+        return;
+      }
+
+      skipRemoteSaveRef.current = true;
+      setSiteData(nextSiteData);
+      setSiteDataSource('custom');
+      setSyncStatus('online');
+      setSyncError('');
+      setRemoteReady(true);
+    };
+
+    const syncSessionState = (session: Session | null) => {
+      if (!isActive) {
+        return;
+      }
+
+      setRemoteAdminAuthenticated(Boolean(session));
+      setAdminSessionEmail(session?.user.email ?? null);
+    };
+
+    const loadRemoteState = async (session: Session | null) => {
+      const remoteResult = await fetchRemoteSiteData();
+
+      if (!isActive) {
+        return;
+      }
+
+      if (remoteResult.error) {
+        setSyncStatus('error');
+        setSyncError(remoteResult.error);
+        setRemoteReady(true);
+        return;
+      }
+
+      if (remoteResult.data) {
+        applyRemoteSiteData(remoteResult.data);
+        return;
+      }
+
+      if (session?.user) {
+        setSyncStatus('saving');
+
+        const bootstrapResult = await saveRemoteSiteData(siteDataRef.current, session.user.id);
+
+        if (!isActive) {
+          return;
+        }
+
+        if (bootstrapResult.error) {
+          setSyncStatus('error');
+          setSyncError(bootstrapResult.error);
+          setRemoteReady(true);
+          return;
+        }
+      }
+
+      setSyncStatus('online');
+      setSyncError('');
+      setRemoteReady(true);
+    };
+
+    void (async () => {
+      setSyncStatus('connecting');
+      setSyncError('');
+
+      const { data, error } = await supabaseClient.auth.getSession();
+
+      if (!isActive) {
+        return;
+      }
+
+      if (error) {
+        setSyncStatus('error');
+        setSyncError(error.message);
+        setRemoteReady(true);
+        return;
+      }
+
+      syncSessionState(data.session);
+      await loadRemoteState(data.session);
+    })();
+
+    const {
+      data: { subscription },
+    } = supabaseClient.auth.onAuthStateChange((_event, session) => {
+      syncSessionState(session);
+
+      if (session) {
+        void loadRemoteState(session);
+      }
+    });
+
+    const unsubscribe = subscribeToRemoteSiteData(
+      (nextSiteData) => {
+        applyRemoteSiteData(nextSiteData);
+      },
+      (message) => {
+        if (!isActive) {
+          return;
+        }
+
+        setSyncStatus('error');
+        setSyncError(message);
+      },
+    );
+
+    return () => {
+      isActive = false;
+      subscription.unsubscribe();
+      unsubscribe();
+    };
+  }, [setSiteData, setSiteDataSource]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase || !remoteReady || !remoteAdminAuthenticated) {
+      return;
+    }
+
+    const supabaseClient = supabase;
+
+    if (skipRemoteSaveRef.current) {
+      skipRemoteSaveRef.current = false;
+      return;
+    }
+
+    const timeout = window.setTimeout(async () => {
+      setSyncStatus('saving');
+
+      const {
+        data: { user },
+      } = await supabaseClient.auth.getUser();
+      const saveResult = await saveRemoteSiteData(siteData, user?.id);
+
+      if (saveResult.error) {
+        setSyncStatus('error');
+        setSyncError(saveResult.error);
+        return;
+      }
+
+      setSyncStatus('online');
+      setSyncError('');
+    }, 500);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [remoteAdminAuthenticated, remoteReady, siteData]);
+
+  useEffect(() => {
+    if (isSupabaseConfigured) {
+      return;
+    }
+
     const hasLegacyCategories = siteData.categories.some((category) => category.id === 'marmitas-dia');
     const hasPlaceholderContact =
       siteData.site.whatsappNumber === '5511999999999' || siteData.site.phone === '(11) 99999-9999';
@@ -469,6 +656,10 @@ function App() {
   ]);
 
   useEffect(() => {
+    if (isSupabaseConfigured) {
+      return;
+    }
+
     const storedCustomSiteData = readCustomSiteData();
 
     if (storedCustomSiteData && siteDataSource !== 'custom') {
@@ -478,6 +669,10 @@ function App() {
   }, [setSiteData, setSiteDataSource, siteDataSource]);
 
   useEffect(() => {
+    if (isSupabaseConfigured) {
+      return;
+    }
+
     if (typeof window === 'undefined') {
       return;
     }
@@ -1046,16 +1241,46 @@ function App() {
     setOpenMenuGroupId((current) => (current === groupId ? null : groupId));
   };
 
-  const loginAdmin = (username: string, password: string) => {
+  const loginAdmin = async (username: string, password: string) => {
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: username.trim(),
+        password,
+      });
+
+      if (error) {
+        return {
+          success: false,
+          error: 'Email ou senha incorretos.',
+        };
+      }
+
+      return {
+        success: true,
+      };
+    }
+
     const success =
       username === siteData.site.adminCredentials.username &&
       password === siteData.site.adminCredentials.password;
 
     if (success) {
-      setAdminAuthenticated(true);
+      setLocalAdminAuthenticated(true);
     }
 
-    return success;
+    return {
+      success,
+      error: success ? '' : 'Login ou senha incorretos.',
+    };
+  };
+
+  const logoutAdmin = async () => {
+    if (isSupabaseConfigured && supabase) {
+      await supabase.auth.signOut();
+      return;
+    }
+
+    setLocalAdminAuthenticated(false);
   };
 
   const finalizeOrder = (event: FormEvent<HTMLFormElement>) => {
@@ -1880,12 +2105,18 @@ function App() {
       <AdminPanel
         open={adminOpen}
         authenticated={adminAuthenticated}
+        authMode={authMode}
+        syncStatus={syncStatus}
+        syncError={syncError}
+        adminUserEmail={adminSessionEmail}
         onClose={() => setAdminOpen(false)}
         onLogin={loginAdmin}
-        onLogout={() => setAdminAuthenticated(false)}
+        onLogout={logoutAdmin}
         siteData={siteData}
         onChange={(next) => {
-          setSiteDataSource('custom');
+          if (!isSupabaseConfigured) {
+            setSiteDataSource('custom');
+          }
           setSiteData(next);
         }}
       />
