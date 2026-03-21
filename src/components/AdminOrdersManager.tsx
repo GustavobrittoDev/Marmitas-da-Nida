@@ -253,16 +253,6 @@ export function AdminOrdersManager({
   return (
     <section className="admin-orders-pro">
       <div className="admin-orders-hero">
-        <div className="admin-orders-hero-copy">
-          <p className="eyebrow">Central de pedidos</p>
-          <h3>Operacao em quadro, com leitura rapida e decisao imediata</h3>
-          <p>
-            Inspirado no modelo de expedicao usado por grandes apps de delivery:
-            cada pedido entra em uma etapa clara, e a equipe acompanha tudo sem
-            se perder em listas longas.
-          </p>
-        </div>
-
         <div className="admin-orders-summary">
           <article className="stat-card admin-order-stat">
             <span>Em andamento</span>
