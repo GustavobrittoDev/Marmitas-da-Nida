@@ -879,7 +879,7 @@ export function AdminPanel({
             <div className="admin-panel-toolbar">
               <div className="admin-toolbar-copy">
                 <span className="pill-label">{syncBadgeLabel}</span>
-                <strong>Abra um topico, ajuste os campos e siga para o proximo sem trocar de tela.</strong>
+                <strong>Edite um topico por vez e salve direto no mesmo bloco.</strong>
                 <p>{syncDescription}</p>
                 {adminUserEmail ? <p>Logado como {adminUserEmail}.</p> : null}
                 {syncStatus === 'error' && syncError ? <p className="error-text">{syncError}</p> : null}
