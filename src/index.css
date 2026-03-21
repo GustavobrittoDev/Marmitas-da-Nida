@@ -3191,6 +3191,22 @@ h3,
   min-width: 0;
 }
 
+.admin-order-column.is-open {
+  border-color: rgba(244, 123, 32, 0.22);
+  background: rgba(255, 250, 245, 0.96);
+}
+
+.admin-order-column-trigger {
+  width: 100%;
+  display: grid;
+  gap: 0.65rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
 .admin-order-column.is-received {
   box-shadow: inset 0 3px 0 rgba(18, 58, 103, 0.18);
 }
@@ -3233,6 +3249,12 @@ h3,
 .admin-order-column-header {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
+}
+
+.admin-order-column-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .admin-order-column-main {
@@ -3283,6 +3305,20 @@ h3,
 
 .admin-order-column-list {
   gap: 0.62rem;
+}
+
+.admin-order-column-content {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition:
+    max-height 220ms ease,
+    opacity 160ms ease;
+}
+
+.admin-order-column-content.is-open {
+  max-height: 240rem;
+  opacity: 1;
 }
 
 .admin-order-tile {

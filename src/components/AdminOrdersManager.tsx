@@ -179,6 +179,7 @@ export function AdminOrdersManager({
   const [boardFilter, setBoardFilter] = useState<BoardFilter>('active');
   const [search, setSearch] = useState('');
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [openColumnStatus, setOpenColumnStatus] = useState<OrderStatus | null>('received');
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [statusError, setStatusError] = useState('');
 
@@ -251,6 +252,22 @@ export function AdminOrdersManager({
     }
   }, [selectedOrder, selectedOrderId]);
 
+  useEffect(() => {
+    const fallbackStatus =
+      visibleColumns.find((column) => visibleOrders.some((order) => order.status === column.status))
+        ?.status ??
+      visibleColumns[0]?.status ??
+      null;
+
+    setOpenColumnStatus((current) => {
+      if (current && visibleColumns.some((column) => column.status === current)) {
+        return current;
+      }
+
+      return fallbackStatus;
+    });
+  }, [visibleColumns, visibleOrders]);
+
   const metrics = useMemo(() => {
     const activeOrders = orders.filter(
       (order) => order.status !== 'completed' && order.status !== 'cancelled',
@@ -290,6 +307,10 @@ export function AdminOrdersManager({
 
   const canCancelSelectedOrder =
     selectedOrder && selectedOrder.status !== 'completed' && selectedOrder.status !== 'cancelled';
+
+  const toggleColumnStatus = (status: OrderStatus) => {
+    setOpenColumnStatus((current) => (current === status ? null : status));
+  };
 
   return (
     <section className="admin-orders-pro">
@@ -375,114 +396,138 @@ export function AdminOrdersManager({
           <div className="admin-orders-board">
             {visibleColumns.map((column) => {
               const columnOrders = visibleOrders.filter((order) => order.status === column.status);
+              const isColumnOpen = openColumnStatus === column.status;
 
               return (
                 <section
                   key={column.status}
-                  className={`admin-order-column ${getOrderStatusClassName(column.status)}`}
+                  className={`admin-order-column ${getOrderStatusClassName(column.status)} ${
+                    isColumnOpen ? 'is-open' : ''
+                  }`}
                 >
-                  <header className="admin-order-column-header">
-                    <div className="admin-order-column-main">
-                      <div className="admin-order-column-icon">
-                        <Icon name={column.icon} className="small-icon" />
+                  <button
+                    type="button"
+                    className="admin-order-column-trigger"
+                    onClick={() => toggleColumnStatus(column.status)}
+                    aria-expanded={isColumnOpen}
+                    aria-controls={`admin-order-column-${column.status}`}
+                  >
+                    <div className="admin-order-column-header">
+                      <div className="admin-order-column-main">
+                        <div className="admin-order-column-icon">
+                          <Icon name={column.icon} className="small-icon" />
+                        </div>
+                        <div className="admin-order-column-copy">
+                          <h4>{column.title}</h4>
+                          <p>{column.subtitle}</p>
+                        </div>
                       </div>
-                      <div className="admin-order-column-copy">
-                        <h4>{column.title}</h4>
-                        <p>{column.subtitle}</p>
+                      <div className="admin-order-column-header-actions">
+                        <div className="admin-order-column-count">{columnOrders.length}</div>
+                        <span className="drawer-toggle" aria-hidden="true">
+                          <Icon
+                            name={isColumnOpen ? 'minus' : 'plus'}
+                            className="drawer-toggle-icon"
+                          />
+                        </span>
                       </div>
                     </div>
-                    <div className="admin-order-column-count">{columnOrders.length}</div>
-                  </header>
+                  </button>
 
-                  <div className="admin-order-column-list">
-                    {columnOrders.length ? (
-                      columnOrders.map((order) => {
-                        const nextStatus = getNextStatus(order.status);
-                        const quickActionLabel = getNextStatusActionLabel(order.status);
-                        const previewItems = order.items.slice(0, 2);
-                        const extraItems = order.items.length - previewItems.length;
+                  <div
+                    id={`admin-order-column-${column.status}`}
+                    className={`admin-order-column-content ${isColumnOpen ? 'is-open' : ''}`}
+                  >
+                    <div className="admin-order-column-list">
+                      {columnOrders.length ? (
+                        columnOrders.map((order) => {
+                          const nextStatus = getNextStatus(order.status);
+                          const quickActionLabel = getNextStatusActionLabel(order.status);
+                          const previewItems = order.items.slice(0, 2);
+                          const extraItems = order.items.length - previewItems.length;
 
-                        return (
-                          <article
-                            key={order.id}
-                            className={`admin-order-tile ${
-                              selectedOrder?.id === order.id ? 'is-selected' : ''
-                            }`}
-                          >
-                            <button
-                              type="button"
-                              className="admin-order-tile-main"
-                              onClick={() => setSelectedOrderId(order.id)}
+                          return (
+                            <article
+                              key={order.id}
+                              className={`admin-order-tile ${
+                                selectedOrder?.id === order.id ? 'is-selected' : ''
+                              }`}
                             >
-                              <div className="admin-order-tile-top">
-                                <span className="admin-order-code">{order.code}</span>
-                                <span className="admin-order-age">{getElapsedLabel(order.createdAt)}</span>
-                              </div>
-
-                              <div className="admin-order-tile-body">
-                                <strong>{order.customerName}</strong>
-                                <div className="admin-order-meta-row">
-                                  <span className="admin-order-meta-tag">
-                                    {formatOrderDateTime(order.createdAt)}
-                                  </span>
-                                  <span className="admin-order-meta-tag">
-                                    {getOrderTypeLabel(order)}
-                                  </span>
-                                  <span className="admin-order-meta-tag">
-                                    {getPaymentLabel(order)}
-                                  </span>
-                                </div>
-                              </div>
-
-                              <div className="admin-order-chips">
-                                <span className="admin-order-chip">{order.items.length} item(ns)</span>
-                                <span className="admin-order-chip">
-                                  {order.deliveryType === 'delivery'
-                                    ? order.address.neighborhood || 'Entrega'
-                                    : 'Retirada'}
-                                </span>
-                              </div>
-
-                              <div className="admin-order-tile-items">
-                                {previewItems.map((item) => (
-                                  <p key={item.id} className="admin-order-preview-line">
-                                    {item.quantity}x {item.name}
-                                  </p>
-                                ))}
-                                {extraItems > 0 ? (
-                                  <p className="admin-order-preview-line">+ {extraItems} item(ns)</p>
-                                ) : null}
-                              </div>
-
-                              <div className="admin-order-tile-footer">
-                                <div>
-                                  <span>Total</span>
-                                  <strong>{formatCurrency(order.total)}</strong>
-                                </div>
-                                <span className={`admin-order-status ${getOrderStatusClassName(order.status)}`}>
-                                  {getOrderStatusLabel(order.status)}
-                                </span>
-                              </div>
-                            </button>
-
-                            {nextStatus ? (
                               <button
                                 type="button"
-                                className="primary-button admin-order-quick-action"
-                                disabled={updatingOrderId === order.id}
-                                onClick={() => void handleStatusChange(order.id, nextStatus)}
+                                className="admin-order-tile-main"
+                                onClick={() => setSelectedOrderId(order.id)}
                               >
-                                {updatingOrderId === order.id ? 'Atualizando...' : quickActionLabel}
+                                <div className="admin-order-tile-top">
+                                  <span className="admin-order-code">{order.code}</span>
+                                  <span className="admin-order-age">{getElapsedLabel(order.createdAt)}</span>
+                                </div>
+
+                                <div className="admin-order-tile-body">
+                                  <strong>{order.customerName}</strong>
+                                  <div className="admin-order-meta-row">
+                                    <span className="admin-order-meta-tag">
+                                      {formatOrderDateTime(order.createdAt)}
+                                    </span>
+                                    <span className="admin-order-meta-tag">
+                                      {getOrderTypeLabel(order)}
+                                    </span>
+                                    <span className="admin-order-meta-tag">
+                                      {getPaymentLabel(order)}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="admin-order-chips">
+                                  <span className="admin-order-chip">{order.items.length} item(ns)</span>
+                                  <span className="admin-order-chip">
+                                    {order.deliveryType === 'delivery'
+                                      ? order.address.neighborhood || 'Entrega'
+                                      : 'Retirada'}
+                                  </span>
+                                </div>
+
+                                <div className="admin-order-tile-items">
+                                  {previewItems.map((item) => (
+                                    <p key={item.id} className="admin-order-preview-line">
+                                      {item.quantity}x {item.name}
+                                    </p>
+                                  ))}
+                                  {extraItems > 0 ? (
+                                    <p className="admin-order-preview-line">+ {extraItems} item(ns)</p>
+                                  ) : null}
+                                </div>
+
+                                <div className="admin-order-tile-footer">
+                                  <div>
+                                    <span>Total</span>
+                                    <strong>{formatCurrency(order.total)}</strong>
+                                  </div>
+                                  <span className={`admin-order-status ${getOrderStatusClassName(order.status)}`}>
+                                    {getOrderStatusLabel(order.status)}
+                                  </span>
+                                </div>
                               </button>
-                            ) : null}
-                          </article>
-                        );
-                      })
-                    ) : (
-                      <div className="admin-order-empty-column">
-                        Nenhum pedido nesta etapa agora.
-                      </div>
-                    )}
+
+                              {nextStatus ? (
+                                <button
+                                  type="button"
+                                  className="primary-button admin-order-quick-action"
+                                  disabled={updatingOrderId === order.id}
+                                  onClick={() => void handleStatusChange(order.id, nextStatus)}
+                                >
+                                  {updatingOrderId === order.id ? 'Atualizando...' : quickActionLabel}
+                                </button>
+                              ) : null}
+                            </article>
+                          );
+                        })
+                      ) : (
+                        <div className="admin-order-empty-column">
+                          Nenhum pedido nesta etapa agora.
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </section>
               );
