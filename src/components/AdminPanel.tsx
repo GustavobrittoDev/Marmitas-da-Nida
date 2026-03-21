@@ -482,7 +482,6 @@ export function AdminPanel({
   };
 
   const availableCount = siteData.menu.filter((item) => item.available).length;
-  const dishOfDay = siteData.menu.find((item) => item.dishOfDay)?.name ?? 'Nao definido';
   const garnishConfig = siteData.site.garnishConfig ?? {
     title: 'Guarnicoes',
     maxSelections: 2,
@@ -894,10 +893,6 @@ export function AdminPanel({
                 <article className="stat-card">
                   <span>Categorias</span>
                   <strong>{siteData.categories.length}</strong>
-                </article>
-                <article className="stat-card">
-                  <span>Prato do dia</span>
-                  <strong>{dishOfDay}</strong>
                 </article>
               </div>
 
