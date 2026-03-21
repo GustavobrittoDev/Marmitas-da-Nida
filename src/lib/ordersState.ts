@@ -14,6 +14,18 @@ type OrderRow = {
 };
 
 function getErrorMessage(error: unknown, fallback: string) {
+  if (error && typeof error === 'object' && 'code' in error) {
+    const code = (error as { code?: string }).code;
+    const message = (error as { message?: string }).message ?? '';
+
+    if (
+      code === 'PGRST205' ||
+      message.includes("Could not find the table 'public.orders' in the schema cache")
+    ) {
+      return 'A central de pedidos ainda nao foi ativada no Supabase. Rode novamente o arquivo supabase/setup.sql para criar a tabela public.orders.';
+    }
+  }
+
   if (error && typeof error === 'object' && 'message' in error) {
     const message = (error as { message?: string }).message;
     if (message) {

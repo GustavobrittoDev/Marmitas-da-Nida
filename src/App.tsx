@@ -114,6 +114,22 @@ function getHighlightIcon(highlight: string): IconName {
   return 'sparkles';
 }
 
+function mergeOrders(primary: OrderRecord[], fallback: OrderRecord[]) {
+  const merged = [...primary];
+  const existingIds = new Set(primary.map((order) => order.id));
+
+  fallback.forEach((order) => {
+    if (!existingIds.has(order.id)) {
+      merged.push(order);
+      existingIds.add(order.id);
+    }
+  });
+
+  return merged.sort(
+    (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
+  );
+}
+
 const emptyCheckout: CheckoutData = {
   fullName: '',
   phone: '',
@@ -312,13 +328,14 @@ function App() {
   const [cartAttentionActive, setCartAttentionActive] = useState(false);
   const [cartAttentionLabel, setCartAttentionLabel] = useState('Toque para revisar e finalizar');
   const cartAttentionTimeoutRef = useRef<number | null>(null);
+  const syncingLocalOrdersRef = useRef(false);
   const skipRemoteSaveRef = useRef(false);
   const siteDataRef = useRef(siteData);
   const authMode: AdminAuthMode = isSupabaseConfigured ? 'supabase' : 'local';
   const adminAuthenticated = isSupabaseConfigured
     ? remoteAdminAuthenticated
     : localAdminAuthenticated;
-  const orders = isSupabaseConfigured ? remoteOrders : localOrders;
+  const orders = isSupabaseConfigured ? mergeOrders(remoteOrders, localOrders) : localOrders;
   const restaurantLocation = siteData.site.restaurantLocation ?? seedSiteData.site.restaurantLocation;
   const deliveryPricing = siteData.site.deliveryPricing ?? seedSiteData.site.deliveryPricing;
 
@@ -576,6 +593,54 @@ function App() {
       unsubscribe();
     };
   }, [remoteAdminAuthenticated, route]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !localOrders.length || syncingLocalOrdersRef.current) {
+      return;
+    }
+
+    let isCancelled = false;
+    syncingLocalOrdersRef.current = true;
+
+    void (async () => {
+      const syncedIds: string[] = [];
+      let syncErrorMessage = '';
+
+      for (const order of localOrders) {
+        const result = await createRemoteOrder(order);
+
+        if (result.error) {
+          syncErrorMessage = result.error;
+          break;
+        }
+
+        syncedIds.push(order.id);
+
+        if (!isCancelled) {
+          setRemoteOrders((current) => mergeOrders([order], current));
+        }
+      }
+
+      if (!isCancelled) {
+        if (syncedIds.length) {
+          setLocalOrders((current) => current.filter((order) => !syncedIds.includes(order.id)));
+        }
+
+        if (syncErrorMessage) {
+          setOrdersError(syncErrorMessage);
+        } else if (syncedIds.length) {
+          setOrdersError('');
+        }
+      }
+
+      syncingLocalOrdersRef.current = false;
+    })();
+
+    return () => {
+      isCancelled = true;
+      syncingLocalOrdersRef.current = false;
+    };
+  }, [localOrders, setLocalOrders]);
 
   useEffect(() => {
     const hasLegacyCategories = siteData.categories.some((category) => category.id === 'marmitas-dia');
@@ -1540,7 +1605,12 @@ function App() {
 
       if (saveResult.error) {
         orderSaveError = saveResult.error;
+        setOrdersError(saveResult.error);
         setLocalOrders((current) => [orderRecord, ...current]);
+      } else {
+        setRemoteOrders((current) => mergeOrders([orderRecord], current));
+        setLocalOrders((current) => current.filter((order) => order.id !== orderRecord.id));
+        setOrdersError('');
       }
     } else {
       setLocalOrders((current) => [orderRecord, ...current]);

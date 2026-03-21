@@ -33,6 +33,7 @@ Se as variaveis `VITE_SUPABASE_URL` e `VITE_SUPABASE_PUBLISHABLE_KEY` estiverem 
 
 1. Crie um projeto no Supabase.
 2. Abra o SQL Editor e rode o arquivo [supabase/setup.sql](C:\Users\nicks\OneDrive\Documents\Marmitas da Nida\supabase\setup.sql).
+   Se voce so precisar ativar a central de pedidos, pode rodar apenas [supabase/orders-setup.sql](C:\Users\nicks\OneDrive\Documents\Marmitas da Nida\supabase\orders-setup.sql).
 3. No Supabase Auth, crie o usuario administrador com email e senha.
 4. Copie a URL do projeto e a publishable key.
 5. Configure as variaveis abaixo no Vercel e tambem no arquivo `.env` local:
