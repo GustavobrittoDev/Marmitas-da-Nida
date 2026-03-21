@@ -1228,6 +1228,7 @@ h3,
 
 .admin-panel {
   width: min(100%, 69rem);
+  overflow: auto;
 }
 
 .overlay-header {
@@ -1255,6 +1256,7 @@ h3,
   display: grid;
   gap: 0.8rem;
   align-content: start;
+  overflow: visible;
 }
 
 .checkout-form {
