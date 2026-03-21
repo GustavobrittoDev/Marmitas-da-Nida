@@ -1,8 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { OrderRecord, OrderStatus } from '../types';
 import { formatCurrency } from '../utils/format';
-import { buildCustomerWhatsAppUrl, formatOrderDateTime, getOrderStatusLabel } from '../utils/orders';
-import { Icon } from './Icon';
+import {
+  buildCustomerWhatsAppUrl,
+  formatOrderDateTime,
+  getOrderStatusLabel,
+} from '../utils/orders';
+import { Icon, IconName } from './Icon';
 
 type AdminOrdersManagerProps = {
   orders: OrderRecord[];
@@ -15,9 +19,41 @@ type AdminOrdersManagerProps = {
   ) => Promise<{ success: boolean; error?: string }>;
 };
 
-type OrderFilter = 'all' | OrderStatus;
+type BoardFilter = 'active' | 'all' | 'completed';
 
-const statusOptions: OrderStatus[] = ['received', 'preparing', 'on_the_way', 'completed'];
+type StatusColumn = {
+  status: OrderStatus;
+  title: string;
+  subtitle: string;
+  icon: IconName;
+};
+
+const statusColumns: StatusColumn[] = [
+  {
+    status: 'received',
+    title: 'Recebidos',
+    subtitle: 'Pedidos novos esperando acao',
+    icon: 'cart',
+  },
+  {
+    status: 'preparing',
+    title: 'Em preparo',
+    subtitle: 'Pedidos sendo montados na cozinha',
+    icon: 'clock',
+  },
+  {
+    status: 'on_the_way',
+    title: 'A caminho',
+    subtitle: 'Pedidos em rota para entrega',
+    icon: 'motoboy',
+  },
+  {
+    status: 'completed',
+    title: 'Finalizados',
+    subtitle: 'Pedidos concluidos e entregues',
+    icon: 'check',
+  },
+];
 
 function getOrderStatusClassName(status: OrderStatus) {
   if (status === 'preparing') {
@@ -35,6 +71,90 @@ function getOrderStatusClassName(status: OrderStatus) {
   return 'is-received';
 }
 
+function getOrderTypeLabel(order: OrderRecord) {
+  return order.deliveryType === 'delivery' ? 'Entrega' : 'Retirada';
+}
+
+function getPaymentLabel(order: OrderRecord) {
+  if (order.paymentMethod === 'pix') {
+    return 'Pix';
+  }
+
+  if (order.paymentMethod === 'cash') {
+    return 'Dinheiro';
+  }
+
+  return 'Cartao';
+}
+
+function getElapsedLabel(dateIso: string) {
+  const diffMs = Date.now() - new Date(dateIso).getTime();
+  const diffMinutes = Math.max(0, Math.round(diffMs / 60000));
+
+  if (diffMinutes < 60) {
+    return `${diffMinutes} min`;
+  }
+
+  const hours = Math.floor(diffMinutes / 60);
+  const minutes = diffMinutes % 60;
+
+  if (!minutes) {
+    return `${hours}h`;
+  }
+
+  return `${hours}h ${minutes}min`;
+}
+
+function getNextStatus(status: OrderStatus): OrderStatus | null {
+  if (status === 'received') {
+    return 'preparing';
+  }
+
+  if (status === 'preparing') {
+    return 'on_the_way';
+  }
+
+  if (status === 'on_the_way') {
+    return 'completed';
+  }
+
+  return null;
+}
+
+function getNextStatusActionLabel(status: OrderStatus) {
+  if (status === 'received') {
+    return 'Iniciar preparo';
+  }
+
+  if (status === 'preparing') {
+    return 'Marcar a caminho';
+  }
+
+  if (status === 'on_the_way') {
+    return 'Finalizar pedido';
+  }
+
+  return 'Pedido concluido';
+}
+
+function sortOrdersForBoard(orders: OrderRecord[]) {
+  return [...orders].sort((left, right) => {
+    if (left.status === 'completed' && right.status !== 'completed') {
+      return 1;
+    }
+
+    if (left.status !== 'completed' && right.status === 'completed') {
+      return -1;
+    }
+
+    if (left.status === 'completed' && right.status === 'completed') {
+      return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+    }
+
+    return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
+  });
+}
+
 export function AdminOrdersManager({
   orders,
   loading,
@@ -42,25 +162,78 @@ export function AdminOrdersManager({
   onRefresh,
   onStatusChange,
 }: AdminOrdersManagerProps) {
-  const [filter, setFilter] = useState<OrderFilter>('all');
+  const [boardFilter, setBoardFilter] = useState<BoardFilter>('active');
+  const [search, setSearch] = useState('');
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [statusError, setStatusError] = useState('');
 
-  const counts = useMemo(
-    () => ({
-      all: orders.length,
-      received: orders.filter((order) => order.status === 'received').length,
-      preparing: orders.filter((order) => order.status === 'preparing').length,
-      on_the_way: orders.filter((order) => order.status === 'on_the_way').length,
-      completed: orders.filter((order) => order.status === 'completed').length,
-    }),
-    [orders],
-  );
+  const normalizedSearch = search.trim().toLowerCase();
 
-  const filteredOrders = useMemo(
-    () => (filter === 'all' ? orders : orders.filter((order) => order.status === filter)),
-    [filter, orders],
-  );
+  const sortedOrders = useMemo(() => sortOrdersForBoard(orders), [orders]);
+
+  const visibleOrders = useMemo(() => {
+    const byFilter =
+      boardFilter === 'all'
+        ? sortedOrders
+        : boardFilter === 'completed'
+          ? sortedOrders.filter((order) => order.status === 'completed')
+          : sortedOrders.filter((order) => order.status !== 'completed');
+
+    if (!normalizedSearch) {
+      return byFilter;
+    }
+
+    return byFilter.filter((order) => {
+      const haystack = [
+        order.code,
+        order.customerName,
+        order.customerPhone,
+        order.address.neighborhood,
+        order.address.street,
+        ...order.items.map((item) => item.name),
+      ]
+        .join(' ')
+        .toLowerCase();
+
+      return haystack.includes(normalizedSearch);
+    });
+  }, [boardFilter, normalizedSearch, sortedOrders]);
+
+  const selectedOrder =
+    visibleOrders.find((order) => order.id === selectedOrderId) ??
+    visibleOrders.find((order) => order.status !== 'completed') ??
+    visibleOrders[0] ??
+    null;
+
+  useEffect(() => {
+    if (!selectedOrder && selectedOrderId) {
+      setSelectedOrderId(null);
+      return;
+    }
+
+    if (!selectedOrderId && selectedOrder) {
+      setSelectedOrderId(selectedOrder.id);
+    }
+  }, [selectedOrder, selectedOrderId]);
+
+  const metrics = useMemo(() => {
+    const activeOrders = orders.filter((order) => order.status !== 'completed');
+    const deliveryOrders = orders.filter((order) => order.deliveryType === 'delivery');
+    const averageTicket = orders.length
+      ? orders.reduce((sum, order) => sum + order.total, 0) / orders.length
+      : 0;
+    const grossVolume = orders.reduce((sum, order) => sum + order.total, 0);
+
+    return {
+      total: orders.length,
+      active: activeOrders.length,
+      delivery: deliveryOrders.length,
+      pickup: orders.length - deliveryOrders.length,
+      averageTicket,
+      grossVolume,
+    };
+  }, [orders]);
 
   const handleStatusChange = async (orderId: string, status: OrderStatus) => {
     setUpdatingOrderId(orderId);
@@ -78,53 +251,83 @@ export function AdminOrdersManager({
   };
 
   return (
-    <section className="admin-orders-stack">
-      <div className="admin-orders-summary">
-        <article className="stat-card admin-order-stat">
-          <span>Pedidos no painel</span>
-          <strong>{counts.all}</strong>
-        </article>
-        <article className="stat-card admin-order-stat">
-          <span>Recebidos</span>
-          <strong>{counts.received}</strong>
-        </article>
-        <article className="stat-card admin-order-stat">
-          <span>Em preparo</span>
-          <strong>{counts.preparing}</strong>
-        </article>
-        <article className="stat-card admin-order-stat">
-          <span>A caminho</span>
-          <strong>{counts.on_the_way}</strong>
-        </article>
-        <article className="stat-card admin-order-stat">
-          <span>Finalizados</span>
-          <strong>{counts.completed}</strong>
-        </article>
+    <section className="admin-orders-pro">
+      <div className="admin-orders-hero">
+        <div className="admin-orders-hero-copy">
+          <p className="eyebrow">Central de pedidos</p>
+          <h3>Operacao em quadro, com leitura rapida e decisao imediata</h3>
+          <p>
+            Inspirado no modelo de expedicao usado por grandes apps de delivery:
+            cada pedido entra em uma etapa clara, e a equipe acompanha tudo sem
+            se perder em listas longas.
+          </p>
+        </div>
+
+        <div className="admin-orders-summary">
+          <article className="stat-card admin-order-stat">
+            <span>Em andamento</span>
+            <strong>{metrics.active}</strong>
+          </article>
+          <article className="stat-card admin-order-stat">
+            <span>Pedidos totais</span>
+            <strong>{metrics.total}</strong>
+          </article>
+          <article className="stat-card admin-order-stat">
+            <span>Volume bruto</span>
+            <strong>{formatCurrency(metrics.grossVolume)}</strong>
+          </article>
+          <article className="stat-card admin-order-stat">
+            <span>Ticket medio</span>
+            <strong>{formatCurrency(metrics.averageTicket)}</strong>
+          </article>
+          <article className="stat-card admin-order-stat">
+            <span>Entrega x retirada</span>
+            <strong>
+              {metrics.delivery}/{metrics.pickup}
+            </strong>
+          </article>
+        </div>
       </div>
 
-      <div className="admin-orders-toolbar">
-        <div className="admin-orders-filters">
-          <button
-            type="button"
-            className={`ghost-button ${filter === 'all' ? 'is-active' : ''}`}
-            onClick={() => setFilter('all')}
-          >
-            Todos
-          </button>
-          {statusOptions.map((status) => (
+      <div className="admin-orders-toolbar-pro">
+        <label className="field admin-order-search-field">
+          <span>Buscar pedido</span>
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Codigo, cliente, telefone ou item"
+          />
+        </label>
+
+        <div className="admin-orders-toolbar-actions">
+          <div className="admin-orders-filters">
             <button
-              key={status}
               type="button"
-              className={`ghost-button ${filter === status ? 'is-active' : ''}`}
-              onClick={() => setFilter(status)}
+              className={`ghost-button ${boardFilter === 'active' ? 'is-active' : ''}`}
+              onClick={() => setBoardFilter('active')}
             >
-              {getOrderStatusLabel(status)}
+              Em andamento
             </button>
-          ))}
+            <button
+              type="button"
+              className={`ghost-button ${boardFilter === 'all' ? 'is-active' : ''}`}
+              onClick={() => setBoardFilter('all')}
+            >
+              Todos
+            </button>
+            <button
+              type="button"
+              className={`ghost-button ${boardFilter === 'completed' ? 'is-active' : ''}`}
+              onClick={() => setBoardFilter('completed')}
+            >
+              Finalizados
+            </button>
+          </div>
+
+          <button type="button" className="secondary-button" onClick={() => void onRefresh()}>
+            Atualizar quadro
+          </button>
         </div>
-        <button type="button" className="secondary-button" onClick={() => void onRefresh()}>
-          Atualizar lista
-        </button>
       </div>
 
       {statusError ? <p className="error-text">{statusError}</p> : null}
@@ -132,139 +335,270 @@ export function AdminOrdersManager({
 
       {loading ? (
         <div className="admin-inline-empty">Carregando pedidos...</div>
-      ) : filteredOrders.length ? (
-        <div className="admin-orders-list">
-          {filteredOrders.map((order) => {
-            const whatsappUrl = buildCustomerWhatsAppUrl(order.customerPhone);
+      ) : visibleOrders.length ? (
+        <div className="admin-orders-workspace">
+          <div className="admin-orders-board">
+            {statusColumns.map((column) => {
+              const columnOrders = visibleOrders.filter((order) => order.status === column.status);
 
-            return (
-              <article key={order.id} className="admin-order-card">
-                <div className="admin-order-header">
-                  <div className="admin-order-main">
-                    <div className="admin-order-headline">
-                      <span className="pill-label">{order.code}</span>
-                      <span
-                        className={`admin-order-status ${getOrderStatusClassName(order.status)}`}
-                      >
-                        {getOrderStatusLabel(order.status)}
-                      </span>
+              return (
+                <section
+                  key={column.status}
+                  className={`admin-order-column ${getOrderStatusClassName(column.status)}`}
+                >
+                  <header className="admin-order-column-header">
+                    <div className="admin-order-column-main">
+                      <div className="admin-order-column-icon">
+                        <Icon name={column.icon} className="small-icon" />
+                      </div>
+                      <div className="admin-order-column-copy">
+                        <h4>{column.title}</h4>
+                        <p>{column.subtitle}</p>
+                      </div>
                     </div>
-                    <h4>{order.customerName}</h4>
+                    <div className="admin-order-column-count">{columnOrders.length}</div>
+                  </header>
+
+                  <div className="admin-order-column-list">
+                    {columnOrders.length ? (
+                      columnOrders.map((order) => {
+                        const nextStatus = getNextStatus(order.status);
+                        const quickActionLabel = getNextStatusActionLabel(order.status);
+                        const previewItems = order.items.slice(0, 2);
+                        const extraItems = order.items.length - previewItems.length;
+
+                        return (
+                          <article
+                            key={order.id}
+                            className={`admin-order-tile ${
+                              selectedOrder?.id === order.id ? 'is-selected' : ''
+                            }`}
+                          >
+                            <button
+                              type="button"
+                              className="admin-order-tile-main"
+                              onClick={() => setSelectedOrderId(order.id)}
+                            >
+                              <div className="admin-order-tile-top">
+                                <span className="admin-order-code">{order.code}</span>
+                                <span className="admin-order-age">{getElapsedLabel(order.createdAt)}</span>
+                              </div>
+
+                              <div className="admin-order-tile-body">
+                                <strong>{order.customerName}</strong>
+                                <p>
+                                  {formatOrderDateTime(order.createdAt)} - {getOrderTypeLabel(order)} -{' '}
+                                  {getPaymentLabel(order)}
+                                </p>
+                              </div>
+
+                              <div className="admin-order-chips">
+                                <span className="admin-order-chip">{order.items.length} item(ns)</span>
+                                <span className="admin-order-chip">
+                                  {order.deliveryType === 'delivery'
+                                    ? order.address.neighborhood || 'Entrega'
+                                    : 'Retirada'}
+                                </span>
+                              </div>
+
+                              <div className="admin-order-tile-items">
+                                {previewItems.map((item) => (
+                                  <p key={item.id}>
+                                    {item.quantity}x {item.name}
+                                  </p>
+                                ))}
+                                {extraItems > 0 ? <p>+ {extraItems} item(ns)</p> : null}
+                              </div>
+
+                              <div className="admin-order-tile-footer">
+                                <div>
+                                  <span>Total</span>
+                                  <strong>{formatCurrency(order.total)}</strong>
+                                </div>
+                                <span className={`admin-order-status ${getOrderStatusClassName(order.status)}`}>
+                                  {getOrderStatusLabel(order.status)}
+                                </span>
+                              </div>
+                            </button>
+
+                            {nextStatus ? (
+                              <button
+                                type="button"
+                                className="primary-button admin-order-quick-action"
+                                disabled={updatingOrderId === order.id}
+                                onClick={() => void handleStatusChange(order.id, nextStatus)}
+                              >
+                                {updatingOrderId === order.id ? 'Atualizando...' : quickActionLabel}
+                              </button>
+                            ) : null}
+                          </article>
+                        );
+                      })
+                    ) : (
+                      <div className="admin-order-empty-column">
+                        Nenhum pedido nesta etapa agora.
+                      </div>
+                    )}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+
+          <aside className="admin-order-detail-panel">
+            {selectedOrder ? (
+              <>
+                <div className="admin-order-detail-header">
+                  <div>
+                    <p className="eyebrow">Pedido selecionado</p>
+                    <h4>{selectedOrder.code}</h4>
                     <p>
-                      {formatOrderDateTime(order.createdAt)} •{' '}
-                      {order.deliveryType === 'delivery' ? 'Entrega' : 'Retirada'}
+                      {selectedOrder.customerName} - {formatOrderDateTime(selectedOrder.createdAt)}
                     </p>
                   </div>
-                  <div className="admin-order-total">
+                  <div className="admin-order-detail-total">
                     <span>Total</span>
-                    <strong>{formatCurrency(order.total)}</strong>
+                    <strong>{formatCurrency(selectedOrder.total)}</strong>
                   </div>
                 </div>
 
-                <div className="admin-order-grid">
-                  <section className="admin-order-block">
-                    <div className="admin-order-block-title">
+                <div className="admin-order-detail-actions">
+                  <div className="admin-order-status-actions">
+                    {statusColumns.map((column) => (
+                      <button
+                        key={column.status}
+                        type="button"
+                        className={`ghost-button ${
+                          selectedOrder.status === column.status ? 'is-active' : ''
+                        }`}
+                        disabled={updatingOrderId === selectedOrder.id}
+                        onClick={() => void handleStatusChange(selectedOrder.id, column.status)}
+                      >
+                        {column.title}
+                      </button>
+                    ))}
+                  </div>
+                  <a
+                    className="secondary-button"
+                    href={buildCustomerWhatsAppUrl(selectedOrder.customerPhone)}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Abrir WhatsApp
+                  </a>
+                </div>
+
+                <div className="admin-order-detail-sections">
+                  <section className="admin-order-detail-section">
+                    <div className="admin-order-detail-section-title">
                       <Icon name="cart" className="small-icon" />
-                      <strong>Itens</strong>
+                      <strong>Itens do pedido</strong>
                     </div>
-                    <div className="admin-order-items">
-                      {order.items.map((item) => (
-                        <div key={item.id} className="admin-order-item-row">
-                          <div>
+                    <div className="admin-order-detail-items">
+                      {selectedOrder.items.map((item) => (
+                        <article key={item.id} className="admin-order-detail-item">
+                          <div className="admin-order-detail-item-top">
                             <strong>
                               {item.quantity}x {item.name}
                             </strong>
-                            <p>
-                              {item.sizeLabel ? `${item.sizeLabel} • ` : ''}
-                              {formatCurrency(item.lineTotal)}
-                            </p>
-                            {item.addonNames.length ? (
-                              <p>
-                                {item.addonLabel}: {item.addonNames.join(', ')}
-                              </p>
-                            ) : null}
-                            {item.notes ? <p>Obs.: {item.notes}</p> : null}
+                            <span>{formatCurrency(item.lineTotal)}</span>
                           </div>
-                        </div>
+                          <p>
+                            {item.sizeLabel ? `${item.sizeLabel} - ` : ''}
+                            {formatCurrency(item.unitTotal)} cada
+                          </p>
+                          {item.addonNames.length ? (
+                            <p>
+                              {item.addonLabel}: {item.addonNames.join(', ')}
+                            </p>
+                          ) : null}
+                          {item.notes ? <p>Obs.: {item.notes}</p> : null}
+                        </article>
                       ))}
                     </div>
                   </section>
 
-                  <section className="admin-order-block">
-                    <div className="admin-order-block-title">
+                  <section className="admin-order-detail-section">
+                    <div className="admin-order-detail-section-title">
                       <Icon name="phone" className="small-icon" />
-                      <strong>Cliente</strong>
+                      <strong>Cliente e entrega</strong>
                     </div>
-                    <p>{order.customerPhone}</p>
-                    <div className="admin-order-block-title top-gap">
-                      <Icon name="map" className="small-icon" />
-                      <strong>Entrega</strong>
-                    </div>
-                    <p>{order.address.formatted}</p>
-                    <p>{order.deliveryMessage}</p>
-                    <p>{order.deliveryEta}</p>
-                    <div className="admin-order-block-title top-gap">
-                      <Icon name="card" className="small-icon" />
-                      <strong>Pagamento</strong>
-                    </div>
-                    <p>
-                      {order.paymentMethod === 'pix'
-                        ? 'Pix'
-                        : order.paymentMethod === 'cash'
-                          ? 'Dinheiro'
-                          : 'Cartao na entrega'}
-                    </p>
-                    {order.changeFor ? <p>Troco para {order.changeFor}</p> : null}
-                    {order.notes ? (
-                      <>
-                        <div className="admin-order-block-title top-gap">
-                          <Icon name="edit" className="small-icon" />
-                          <strong>Observacoes</strong>
-                        </div>
-                        <p>{order.notes}</p>
-                      </>
-                    ) : null}
+                    <ul className="admin-order-detail-list">
+                      <li>
+                        <span>Telefone</span>
+                        <strong>{selectedOrder.customerPhone}</strong>
+                      </li>
+                      <li>
+                        <span>Entrega</span>
+                        <strong>{getOrderTypeLabel(selectedOrder)}</strong>
+                      </li>
+                      <li>
+                        <span>Endereco</span>
+                        <strong>{selectedOrder.address.formatted}</strong>
+                      </li>
+                      <li>
+                        <span>Status logistica</span>
+                        <strong>{selectedOrder.deliveryMessage}</strong>
+                      </li>
+                      <li>
+                        <span>Previsao</span>
+                        <strong>{selectedOrder.deliveryEta}</strong>
+                      </li>
+                    </ul>
                   </section>
-                </div>
 
-                <div className="admin-order-footer">
-                  <div className="admin-order-price-breakdown">
-                    <span>Subtotal {formatCurrency(order.subtotal)}</span>
-                    <span>Entrega {formatCurrency(order.deliveryFee)}</span>
-                    <strong>Total {formatCurrency(order.total)}</strong>
-                  </div>
-
-                  <div className="admin-order-actions">
-                    <div className="admin-order-status-actions">
-                      {statusOptions.map((status) => (
-                        <button
-                          key={status}
-                          type="button"
-                          className={`ghost-button ${order.status === status ? 'is-active' : ''}`}
-                          disabled={updatingOrderId === order.id}
-                          onClick={() => void handleStatusChange(order.id, status)}
-                        >
-                          {getOrderStatusLabel(status)}
-                        </button>
-                      ))}
+                  <section className="admin-order-detail-section">
+                    <div className="admin-order-detail-section-title">
+                      <Icon name="card" className="small-icon" />
+                      <strong>Financeiro</strong>
                     </div>
-                    <a
-                      className="secondary-button"
-                      href={whatsappUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Abrir WhatsApp
-                    </a>
-                  </div>
+                    <ul className="admin-order-detail-list">
+                      <li>
+                        <span>Pagamento</span>
+                        <strong>{getPaymentLabel(selectedOrder)}</strong>
+                      </li>
+                      {selectedOrder.changeFor ? (
+                        <li>
+                          <span>Troco para</span>
+                          <strong>{selectedOrder.changeFor}</strong>
+                        </li>
+                      ) : null}
+                      <li>
+                        <span>Subtotal</span>
+                        <strong>{formatCurrency(selectedOrder.subtotal)}</strong>
+                      </li>
+                      <li>
+                        <span>Entrega</span>
+                        <strong>{formatCurrency(selectedOrder.deliveryFee)}</strong>
+                      </li>
+                      <li>
+                        <span>Total final</span>
+                        <strong>{formatCurrency(selectedOrder.total)}</strong>
+                      </li>
+                    </ul>
+                  </section>
+
+                  {selectedOrder.notes ? (
+                    <section className="admin-order-detail-section">
+                      <div className="admin-order-detail-section-title">
+                        <Icon name="edit" className="small-icon" />
+                        <strong>Observacoes do cliente</strong>
+                      </div>
+                      <p className="admin-order-detail-notes">{selectedOrder.notes}</p>
+                    </section>
+                  ) : null}
                 </div>
-              </article>
-            );
-          })}
+              </>
+            ) : (
+              <div className="admin-inline-empty">
+                Selecione um pedido no quadro para ver os detalhes completos.
+              </div>
+            )}
+          </aside>
         </div>
       ) : (
         <div className="admin-inline-empty">
-          Nenhum pedido encontrado neste filtro ainda.
+          Nenhum pedido encontrado com esse filtro.
         </div>
       )}
     </section>
