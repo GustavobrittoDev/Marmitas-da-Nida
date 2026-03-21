@@ -13,6 +13,12 @@ export type AddonOption = {
   price: number;
 };
 
+export type GarnishConfig = {
+  title: string;
+  maxSelections: number;
+  options: AddonOption[];
+};
+
 export type MenuItem = {
   id: string;
   categoryId: string;
@@ -25,6 +31,7 @@ export type MenuItem = {
   dishOfDay: boolean;
   prepTime: string;
   tags: string[];
+  usesGlobalGarnishes?: boolean;
   addonTitle?: string;
   addonOptions?: AddonOption[];
 };
@@ -110,6 +117,7 @@ export type SiteConfig = {
   deliveryZones: DeliveryZone[];
   restaurantLocation: RestaurantLocation;
   deliveryPricing: DeliveryPricing;
+  garnishConfig: GarnishConfig;
   adminCredentials: AdminCredentials;
 };
 

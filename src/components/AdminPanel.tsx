@@ -31,6 +31,7 @@ type ItemFormState = {
   image: string;
   prepTime: string;
   tags: string;
+  usesGlobalGarnishes: boolean;
   addonTitle: string;
   addonOptions: string;
   available: boolean;
@@ -68,6 +69,7 @@ const emptyItem: ItemFormState = {
   image: '',
   prepTime: '',
   tags: '',
+  usesGlobalGarnishes: false,
   addonTitle: '',
   addonOptions: '',
   available: true,
@@ -85,6 +87,7 @@ function mapItemToForm(item: MenuItem): ItemFormState {
     image: item.image,
     prepTime: item.prepTime,
     tags: item.tags.join(', '),
+    usesGlobalGarnishes: Boolean(item.usesGlobalGarnishes),
     addonTitle: item.addonTitle ?? '',
     addonOptions:
       item.addonOptions?.map((option) => `${option.name}: ${option.price.toFixed(2)}`).join('\n') ??
@@ -111,6 +114,10 @@ function parseAddonOptions(value: string) {
       };
     })
     .filter((option) => option.name);
+}
+
+function formatAddonOptions(options?: { name: string; price: number }[]) {
+  return options?.map((option) => `${option.name}: ${option.price.toFixed(2)}`).join('\n') ?? '';
 }
 
 function readFileAsDataUrl(file: File) {
@@ -399,8 +406,9 @@ export function AdminPanel({
         .split(',')
         .map((tag) => tag.trim())
         .filter(Boolean),
-      addonTitle: itemForm.addonTitle.trim() || undefined,
-      addonOptions: parseAddonOptions(itemForm.addonOptions),
+      usesGlobalGarnishes: itemForm.usesGlobalGarnishes,
+      addonTitle: itemForm.usesGlobalGarnishes ? undefined : itemForm.addonTitle.trim() || undefined,
+      addonOptions: itemForm.usesGlobalGarnishes ? undefined : parseAddonOptions(itemForm.addonOptions),
       available: itemForm.available,
       featured: itemForm.featured,
       dishOfDay: itemForm.dishOfDay,
@@ -520,6 +528,11 @@ export function AdminPanel({
 
   const availableCount = siteData.menu.filter((item) => item.available).length;
   const dishOfDay = siteData.menu.find((item) => item.dishOfDay)?.name ?? 'Nao definido';
+  const garnishConfig = siteData.site.garnishConfig ?? {
+    title: 'Guarnicoes',
+    maxSelections: 2,
+    options: [],
+  };
   const deliverySummary = `Base ${formatCurrency(siteData.site.deliveryPricing.baseFee)} + ${formatCurrency(
     siteData.site.deliveryPricing.feeStep,
   )} a cada ${siteData.site.deliveryPricing.stepDistanceKm} km`;
@@ -747,26 +760,6 @@ export function AdminPanel({
           onChange={(event) => setItemForm((current) => ({ ...current, tags: event.target.value }))}
         />
       </label>
-      <label className="field">
-        <span>Titulo dos adicionais</span>
-        <input
-          value={itemForm.addonTitle}
-          onChange={(event) =>
-            setItemForm((current) => ({ ...current, addonTitle: event.target.value }))
-          }
-        />
-      </label>
-      <label className="field full-span">
-        <span>Adicionais</span>
-        <textarea
-          rows={4}
-          value={itemForm.addonOptions}
-          onChange={(event) =>
-            setItemForm((current) => ({ ...current, addonOptions: event.target.value }))
-          }
-          placeholder="Um por linha: Nome: 4.50"
-        />
-      </label>
       <div className="toggle-group full-span">
         <label className="toggle-option">
           <input
@@ -791,6 +784,19 @@ export function AdminPanel({
         <label className="toggle-option">
           <input
             type="checkbox"
+            checked={itemForm.usesGlobalGarnishes}
+            onChange={(event) =>
+              setItemForm((current) => ({
+                ...current,
+                usesGlobalGarnishes: event.target.checked,
+              }))
+            }
+          />
+          <span>Usa guarnicoes globais</span>
+        </label>
+        <label className="toggle-option">
+          <input
+            type="checkbox"
             checked={itemForm.dishOfDay}
             onChange={(event) =>
               setItemForm((current) => ({ ...current, dishOfDay: event.target.checked }))
@@ -799,6 +805,35 @@ export function AdminPanel({
           <span>Prato do dia</span>
         </label>
       </div>
+      {itemForm.usesGlobalGarnishes ? (
+        <div className="admin-inline-empty full-span">
+          Este item usa as guarnicoes globais definidas em Configuracoes. Se desmarcar, voce pode cadastrar adicionais proprios abaixo.
+        </div>
+      ) : (
+        <>
+          <label className="field">
+            <span>Titulo dos adicionais</span>
+            <input
+              value={itemForm.addonTitle}
+              onChange={(event) =>
+                setItemForm((current) => ({ ...current, addonTitle: event.target.value }))
+              }
+              placeholder="Ex.: Adicionais"
+            />
+          </label>
+          <label className="field full-span">
+            <span>Adicionais do item</span>
+            <textarea
+              rows={4}
+              value={itemForm.addonOptions}
+              onChange={(event) =>
+                setItemForm((current) => ({ ...current, addonOptions: event.target.value }))
+              }
+              placeholder="Um por linha: Nome: 4.50"
+            />
+          </label>
+        </>
+      )}
       <div className="field action-row full-span">
         <button type="submit" className="primary-button" disabled={!siteData.categories.length}>
           {submitLabel}
@@ -1255,6 +1290,9 @@ export function AdminPanel({
                                       >
                                         {item.available ? 'Disponivel' : 'Indisponivel'}
                                       </span>
+                                      {item.usesGlobalGarnishes ? (
+                                        <span className="mini-chip muted-chip">Guarnicao global</span>
+                                      ) : null}
                                       {item.dishOfDay ? (
                                         <span className="mini-chip accent-chip">Prato do dia</span>
                                       ) : null}
@@ -1474,6 +1512,74 @@ export function AdminPanel({
                                 site: { ...siteData.site, facebook: event.target.value },
                               })
                             }
+                          />
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="admin-card">
+                      <h3>Guarnicoes globais</h3>
+                      <p>
+                        Edite aqui uma vez so. Todos os itens marcados com guarnicoes globais passam a usar estas opcoes.
+                      </p>
+                      <div className="admin-grid two-columns">
+                        <label className="field">
+                          <span>Titulo</span>
+                          <input
+                            value={garnishConfig.title}
+                            onChange={(event) =>
+                              commit({
+                                ...siteData,
+                                site: {
+                                  ...siteData.site,
+                                  garnishConfig: {
+                                    ...garnishConfig,
+                                    title: event.target.value,
+                                  },
+                                },
+                              })
+                            }
+                          />
+                        </label>
+                        <label className="field">
+                          <span>Maximo de escolhas</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={garnishConfig.maxSelections}
+                            onChange={(event) =>
+                              commit({
+                                ...siteData,
+                                site: {
+                                  ...siteData.site,
+                                  garnishConfig: {
+                                    ...garnishConfig,
+                                    maxSelections: Number(event.target.value),
+                                  },
+                                },
+                              })
+                            }
+                          />
+                        </label>
+                        <label className="field full-span">
+                          <span>Opcoes de guarnicao</span>
+                          <textarea
+                            rows={4}
+                            value={formatAddonOptions(garnishConfig.options)}
+                            onChange={(event) =>
+                              commit({
+                                ...siteData,
+                                site: {
+                                  ...siteData.site,
+                                  garnishConfig: {
+                                    ...garnishConfig,
+                                    options: parseAddonOptions(event.target.value),
+                                  },
+                                },
+                              })
+                            }
+                            placeholder="Um por linha: Farofa: 0.00"
                           />
                         </label>
                       </div>

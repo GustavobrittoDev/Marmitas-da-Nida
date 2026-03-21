@@ -1,5 +1,6 @@
 import { CartItem, CheckoutData, MenuItem, SiteData } from '../types';
 import { formatCurrency, sanitizePhoneNumber } from './format';
+import { getItemOptionConfig } from './menuOptions';
 
 type ResolvedCartLine = {
   cartItem: CartItem;
@@ -8,18 +9,8 @@ type ResolvedCartLine = {
   lineTotal: number;
 };
 
-const garnishOptionIds = new Set(['farofa', 'macarrao-com-molho', 'chuchu-refogado']);
-
-function getAddonLabel(menuItem: MenuItem) {
-  const isGarnishChoice =
-    (menuItem.addonOptions?.length ?? 0) > 0 &&
-    menuItem.addonOptions?.every((option) => garnishOptionIds.has(option.id));
-
-  if (isGarnishChoice) {
-    return 'Guarnicoes';
-  }
-
-  return menuItem.addonTitle || 'Adicionais';
+function getAddonLabel(siteData: SiteData, menuItem: MenuItem) {
+  return getItemOptionConfig(siteData.site, menuItem)?.title || 'Adicionais';
 }
 
 function buildAddress(checkout: CheckoutData) {
@@ -61,7 +52,9 @@ export function buildWhatsAppMessage(params: {
   const { siteData, cartLines, checkout, subtotal, deliveryFee, total } = params;
   const itemLines = cartLines
     .map(({ cartItem, menuItem, addonLabels, lineTotal }) => {
-      const addonText = addonLabels.length ? ` (${getAddonLabel(menuItem)}: ${addonLabels.join(', ')})` : '';
+      const addonText = addonLabels.length
+        ? ` (${getAddonLabel(siteData, menuItem)}: ${addonLabels.join(', ')})`
+        : '';
       const noteText = cartItem.notes ? `\n  Observacao: ${cartItem.notes}` : '';
       return `- ${cartItem.quantity}x ${menuItem.name}${addonText} - ${formatCurrency(lineTotal)}${noteText}`;
     })

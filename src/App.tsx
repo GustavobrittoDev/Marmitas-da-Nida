@@ -20,6 +20,7 @@ import {
   getPickupDeliveryInfo,
 } from './utils/delivery';
 import { formatCurrency, sanitizePhoneNumber } from './utils/format';
+import { getItemOptionConfig, isLegacyGarnishOptionSet, normalizeOptionSelection } from './utils/menuOptions';
 import { buildWhatsAppUrl } from './utils/whatsapp';
 
 type MenuGroup = {
@@ -33,6 +34,7 @@ type MenuGroup = {
   dishOfDay: boolean;
   prepTime: string;
   tags: string[];
+  usesGlobalGarnishes?: boolean;
   addonTitle?: string;
   addonOptions?: AddonOption[];
   items: MenuItem[];
@@ -76,7 +78,6 @@ const siteDataStorageKey = 'nida-site-data-v2';
 const siteDataSourceStorageKey = 'nida-site-data-source';
 const customSiteDataStorageKey = 'nida-site-data-custom';
 const sizePattern = /\s*-\s*(Pequena|Media)$/i;
-const garnishOptionIds = new Set(['farofa', 'macarrao-com-molho', 'chuchu-refogado']);
 
 function getHighlightIcon(highlight: string): IconName {
   const normalized = highlight.toLowerCase();
@@ -172,6 +173,7 @@ function buildMenuGroups(menu: MenuItem[]) {
         dishOfDay: item.dishOfDay,
         prepTime: item.prepTime,
         tags: item.tags.filter((tag) => tag !== 'Pequena' && tag !== 'Media'),
+        usesGlobalGarnishes: item.usesGlobalGarnishes,
         addonTitle: item.addonTitle,
         addonOptions: item.addonOptions,
         items: [item],
@@ -207,40 +209,50 @@ function getGroupPriceLabel(group: MenuGroup) {
 }
 
 function getAddonSelectionRules(
-  item?: Pick<MenuItem, 'addonTitle' | 'addonOptions'> | Pick<MenuGroup, 'addonTitle' | 'addonOptions'> | null,
+  siteConfig: SiteData['site'],
+  item?:
+    | Pick<MenuItem, 'usesGlobalGarnishes' | 'addonTitle' | 'addonOptions'>
+    | Pick<MenuGroup, 'usesGlobalGarnishes' | 'addonTitle' | 'addonOptions'>
+    | null,
 ) {
-  const addonOptions = item?.addonOptions ?? [];
-  const hasGarnishChoices =
-    addonOptions.length > 0 && addonOptions.every((option) => garnishOptionIds.has(option.id));
-  const maxSelections = hasGarnishChoices ? Math.min(2, addonOptions.length) : addonOptions.length;
+  const config = getItemOptionConfig(siteConfig, item);
 
   return {
-    hasGarnishChoices,
+    hasGarnishChoices: config?.source === 'garnish',
     minSelections: 0,
-    maxSelections,
+    maxSelections: config?.maxSelections ?? 0,
   };
 }
 
 function getAddonLabel(
-  item?: Pick<MenuItem, 'addonTitle' | 'addonOptions'> | Pick<MenuGroup, 'addonTitle' | 'addonOptions'> | null,
+  siteConfig: SiteData['site'],
+  item?:
+    | Pick<MenuItem, 'usesGlobalGarnishes' | 'addonTitle' | 'addonOptions'>
+    | Pick<MenuGroup, 'usesGlobalGarnishes' | 'addonTitle' | 'addonOptions'>
+    | null,
 ) {
-  const rules = getAddonSelectionRules(item);
-
-  if (rules.hasGarnishChoices) {
-    return 'Guarnicoes';
-  }
-
-  return item?.addonTitle || 'Adicionais';
+  return getItemOptionConfig(siteConfig, item)?.title || 'Adicionais';
 }
 
-function normalizeAddonSelection(selectedAddonIds: string[], addonOptions: AddonOption[] = [], maxSelections = 0) {
-  const validIds = selectedAddonIds.filter((addonId) => addonOptions.some((option) => option.id === addonId));
+function getAddonOptions(
+  siteConfig: SiteData['site'],
+  item?:
+    | Pick<MenuItem, 'usesGlobalGarnishes' | 'addonTitle' | 'addonOptions'>
+    | Pick<MenuGroup, 'usesGlobalGarnishes' | 'addonTitle' | 'addonOptions'>
+    | null,
+) {
+  return getItemOptionConfig(siteConfig, item)?.options ?? [];
+}
 
-  if (!maxSelections) {
-    return [];
-  }
-
-  return validIds.slice(0, maxSelections);
+function normalizeAddonSelection(
+  siteConfig: SiteData['site'],
+  selectedAddonIds: string[],
+  item?:
+    | Pick<MenuItem, 'usesGlobalGarnishes' | 'addonTitle' | 'addonOptions'>
+    | Pick<MenuGroup, 'usesGlobalGarnishes' | 'addonTitle' | 'addonOptions'>
+    | null,
+) {
+  return normalizeOptionSelection(selectedAddonIds, getItemOptionConfig(siteConfig, item));
 }
 
 function App() {
@@ -462,10 +474,6 @@ function App() {
   }, [remoteAdminAuthenticated, remoteReady, siteData]);
 
   useEffect(() => {
-    if (isSupabaseConfigured) {
-      return;
-    }
-
     const hasLegacyCategories = siteData.categories.some((category) => category.id === 'marmitas-dia');
     const hasPlaceholderContact =
       siteData.site.whatsappNumber === '5511999999999' || siteData.site.phone === '(11) 99999-9999';
@@ -477,6 +485,13 @@ function App() {
       (item) =>
         (item.categoryId === 'especial-do-dia' || item.categoryId === 'pratos-fixos') &&
         item.addonOptions?.some((option) => ['ovo-frito', 'salada-simples', 'salada-completa'].includes(option.id)),
+    );
+    const hasMissingGarnishConfig =
+      !siteData.site.garnishConfig ||
+      !Array.isArray(siteData.site.garnishConfig.options) ||
+      typeof siteData.site.garnishConfig.maxSelections !== 'number';
+    const hasLegacyInlineGarnishes = siteData.menu.some(
+      (item) => isLegacyGarnishOptionSet(item.addonOptions) && !item.usesGlobalGarnishes,
     );
     const hasLegacyTagline = siteData.site.tagline === 'Especial do dia e pratos fixos com sabor caseiro e confianca.';
     const hasLegacyDeliveryConfig =
@@ -531,6 +546,40 @@ function App() {
             addonOptions: seedItem.addonOptions,
           };
         }),
+        updatedAt: new Date().toISOString(),
+      }));
+      return;
+    }
+
+    if (hasMissingGarnishConfig || hasLegacyInlineGarnishes) {
+      setSiteData((current) => ({
+        ...current,
+        site: {
+          ...current.site,
+          garnishConfig:
+            current.site.garnishConfig &&
+            Array.isArray(current.site.garnishConfig.options) &&
+            current.site.garnishConfig.options.length
+              ? {
+                  title: current.site.garnishConfig.title || seedSiteData.site.garnishConfig.title,
+                  maxSelections:
+                    typeof current.site.garnishConfig.maxSelections === 'number'
+                      ? current.site.garnishConfig.maxSelections
+                      : seedSiteData.site.garnishConfig.maxSelections,
+                  options: current.site.garnishConfig.options,
+                }
+              : seedSiteData.site.garnishConfig,
+        },
+        menu: current.menu.map((item) =>
+          isLegacyGarnishOptionSet(item.addonOptions)
+            ? {
+                ...item,
+                usesGlobalGarnishes: true,
+                addonTitle: undefined,
+                addonOptions: undefined,
+              }
+            : item,
+        ),
         updatedAt: new Date().toISOString(),
       }));
       return;
@@ -766,13 +815,14 @@ function App() {
       return [];
     }
 
+    const itemOptionConfig = getItemOptionConfig(siteData.site, menuItem);
     const addonLabels =
-      menuItem.addonOptions
-        ?.filter((option) => cartItem.selectedAddonIds.includes(option.id))
+      itemOptionConfig?.options
+        .filter((option) => cartItem.selectedAddonIds.includes(option.id))
         .map((option) => option.name) ?? [];
     const addonTotal =
-      menuItem.addonOptions
-        ?.filter((option) => cartItem.selectedAddonIds.includes(option.id))
+      itemOptionConfig?.options
+        .filter((option) => cartItem.selectedAddonIds.includes(option.id))
         .reduce((sum, option) => sum + option.price, 0) ?? 0;
 
     return [
@@ -802,9 +852,10 @@ function App() {
   const selectedSheetItem = itemSheet
     ? itemSheet.group.items.find((item) => item.id === itemSheet.selectedItemId) ?? itemSheet.group.items[0]
     : null;
-  const selectedSheetRules = getAddonSelectionRules(selectedSheetItem);
+  const selectedSheetConfig = getItemOptionConfig(siteData.site, selectedSheetItem);
+  const selectedSheetRules = getAddonSelectionRules(siteData.site, selectedSheetItem);
   const selectedSheetAddonTotal =
-    selectedSheetItem?.addonOptions
+    selectedSheetConfig?.options
       ?.filter((option) => itemSheet?.selectedAddonIds.includes(option.id))
       .reduce((sum, option) => sum + option.price, 0) ?? 0;
   const selectedSheetCanSubmit =
@@ -858,16 +909,16 @@ function App() {
       group.items.find((item) => item.id === currentSelection.selectedItemId) ??
       group.items.find((item) => item.available) ??
       group.items[0];
-    const selectionRules = getAddonSelectionRules(selectedItem);
+    const selectionRules = getAddonSelectionRules(siteData.site, selectedItem);
 
     return {
       selectedItem,
       selection: {
         selectedItemId: selectedItem?.id ?? fallbackSelection.selectedItemId,
         selectedAddonIds: normalizeAddonSelection(
+          siteData.site,
           currentSelection.selectedAddonIds,
-          selectedItem?.addonOptions,
-          selectionRules.maxSelections,
+          selectedItem,
         ),
       },
       selectionRules,
@@ -889,22 +940,21 @@ function App() {
     }
 
     const currentSelection = getGroupSelection(group).selection;
-    const nextRules = getAddonSelectionRules(nextItem);
-
     setGroupSelection(group.id, {
       selectedItemId: nextItem.id,
       selectedAddonIds: normalizeAddonSelection(
+        siteData.site,
         currentSelection.selectedAddonIds,
-        nextItem.addonOptions,
-        nextRules.maxSelections,
+        nextItem,
       ),
     });
   };
 
   const toggleGroupAddon = (group: MenuGroup, addonId: string) => {
     const { selectedItem, selection, selectionRules } = getGroupSelection(group);
+    const selectedItemOptions = getAddonOptions(siteData.site, selectedItem);
 
-    if (!selectedItem?.addonOptions?.some((option) => option.id === addonId)) {
+    if (!selectedItemOptions.some((option) => option.id === addonId)) {
       return;
     }
 
@@ -973,9 +1023,9 @@ function App() {
       quantity: line.cartItem.quantity,
       notes: line.cartItem.notes,
       selectedAddonIds: normalizeAddonSelection(
+        siteData.site,
         line.cartItem.selectedAddonIds,
-        line.menuItem.addonOptions,
-        getAddonSelectionRules(line.menuItem).maxSelections,
+        line.menuItem,
       ),
       cartItemId: line.cartItem.id,
     });
@@ -1031,8 +1081,9 @@ function App() {
       <div className="menu-grid">
         {visibleGroups.map((group) => {
           const { selectedItem, selection, selectionRules } = getGroupSelection(group);
+          const selectedItemConfig = getItemOptionConfig(siteData.site, selectedItem);
           const selectedAddonTotal =
-            selectedItem?.addonOptions
+            selectedItemConfig?.options
               ?.filter((option) => selection.selectedAddonIds.includes(option.id))
               .reduce((sum, option) => sum + option.price, 0) ?? 0;
           const canAddGroup = group.available && selection.selectedAddonIds.length >= selectionRules.minSelections;
@@ -1104,10 +1155,10 @@ function App() {
                   </div>
                 ) : null}
 
-                {selectedItem?.addonOptions?.length ? (
+                {selectedItemConfig?.options.length ? (
                   <div className="menu-card-section">
                     <div className="menu-card-section-header">
-                      <span className="menu-card-section-label">{getAddonLabel(selectedItem)}</span>
+                      <span className="menu-card-section-label">{getAddonLabel(siteData.site, selectedItem)}</span>
                       <span className="selection-hint">
                         {selectionRules.hasGarnishChoices
                           ? `Ate ${selectionRules.maxSelections} opcoes`
@@ -1115,7 +1166,7 @@ function App() {
                       </span>
                     </div>
                     <div className="menu-choice-grid addon-choice-grid">
-                      {selectedItem.addonOptions.map((addon) => {
+                      {selectedItemConfig.options.map((addon) => {
                         const isSelected = selection.selectedAddonIds.includes(addon.id);
                         const isDisabled =
                           !isSelected && selection.selectedAddonIds.length >= selectionRules.maxSelections;
@@ -1157,7 +1208,7 @@ function App() {
                       ? `Adicionar ${formatCurrency((selectedItem?.price ?? 0) + selectedAddonTotal)}`
                       : 'Indisponivel'}
                   </button>
-                  {(group.items.length > 1 || selectedItem?.addonOptions?.length) && group.available ? (
+                  {(group.items.length > 1 || selectedItemConfig?.options.length) && group.available ? (
                     <button type="button" className="ghost-button menu-card-link" onClick={() => openItemSheet(group)}>
                       Detalhes e observacoes
                     </button>
@@ -1616,9 +1667,9 @@ function App() {
                                         ...current,
                                         selectedItemId: item.id,
                                         selectedAddonIds: normalizeAddonSelection(
+                                          siteData.site,
                                           current.selectedAddonIds,
-                                          item.addonOptions,
-                                          getAddonSelectionRules(item).maxSelections,
+                                          item,
                                         ),
                                       }
                                     : current,
@@ -1634,11 +1685,11 @@ function App() {
                 </div>
               ) : null}
 
-              {selectedSheetItem?.addonOptions?.length ? (
+              {selectedSheetConfig?.options.length ? (
                 <div className="stack-list">
                   <div>
                     <div className="menu-card-section-header">
-                      <p className="eyebrow">{getAddonLabel(selectedSheetItem)}</p>
+                      <p className="eyebrow">{getAddonLabel(siteData.site, selectedSheetItem)}</p>
                       <span
                         className={`selection-hint ${itemSheet.selectedAddonIds.length < selectedSheetRules.minSelections ? 'is-warning' : ''}`}
                       >
@@ -1648,7 +1699,7 @@ function App() {
                       </span>
                     </div>
                     <div className="options-stack">
-                      {selectedSheetItem.addonOptions.map((addon) => {
+                      {selectedSheetConfig.options.map((addon) => {
                         const isSelected = itemSheet.selectedAddonIds.includes(addon.id);
                         const isDisabled =
                           !isSelected && itemSheet.selectedAddonIds.length >= selectedSheetRules.maxSelections;
@@ -1793,7 +1844,7 @@ function App() {
                           </p>
                           {line.addonLabels.length ? (
                             <p>
-                              <strong>{getAddonLabel(line.menuItem)}:</strong> {line.addonLabels.join(', ')}
+                              <strong>{getAddonLabel(siteData.site, line.menuItem)}:</strong> {line.addonLabels.join(', ')}
                             </p>
                           ) : null}
                           {line.cartItem.notes ? (

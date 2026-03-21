@@ -66,8 +66,7 @@ export const seedSiteData: SiteData = {
       dishOfDay: false,
       prepTime: '25 a 35 min',
       tags: ['Especial do dia', 'Pequena'],
-      addonTitle: 'Guarnicoes',
-      addonOptions: mealExtras,
+      usesGlobalGarnishes: true,
     },
     {
       id: 'carne-com-batata-media',
@@ -82,8 +81,7 @@ export const seedSiteData: SiteData = {
       dishOfDay: false,
       prepTime: '25 a 35 min',
       tags: ['Especial do dia', 'Media'],
-      addonTitle: 'Guarnicoes',
-      addonOptions: mealExtras,
+      usesGlobalGarnishes: true,
     },
     {
       id: 'calabresa-acebolada-pequena',
@@ -98,8 +96,7 @@ export const seedSiteData: SiteData = {
       dishOfDay: false,
       prepTime: '20 a 30 min',
       tags: ['Especial do dia', 'Pequena'],
-      addonTitle: 'Guarnicoes',
-      addonOptions: mealExtras,
+      usesGlobalGarnishes: true,
     },
     {
       id: 'calabresa-acebolada-media',
@@ -114,8 +111,7 @@ export const seedSiteData: SiteData = {
       dishOfDay: false,
       prepTime: '20 a 30 min',
       tags: ['Especial do dia', 'Media'],
-      addonTitle: 'Guarnicoes',
-      addonOptions: mealExtras,
+      usesGlobalGarnishes: true,
     },
     {
       id: 'marmita-so-mistura-pequena',
@@ -130,8 +126,7 @@ export const seedSiteData: SiteData = {
       dishOfDay: true,
       prepTime: '25 a 35 min',
       tags: ['Prato do dia', 'Pequena'],
-      addonTitle: 'Guarnicoes',
-      addonOptions: mealExtras,
+      usesGlobalGarnishes: true,
     },
     {
       id: 'marmita-so-mistura-media',
@@ -146,8 +141,7 @@ export const seedSiteData: SiteData = {
       dishOfDay: false,
       prepTime: '25 a 35 min',
       tags: ['Prato do dia', 'Media'],
-      addonTitle: 'Guarnicoes',
-      addonOptions: mealExtras,
+      usesGlobalGarnishes: true,
     },
     {
       id: 'frango-parmegiana-pequena',
@@ -162,8 +156,7 @@ export const seedSiteData: SiteData = {
       dishOfDay: false,
       prepTime: '25 a 35 min',
       tags: ['Popular', 'Pequena'],
-      addonTitle: 'Guarnicoes',
-      addonOptions: mealExtras,
+      usesGlobalGarnishes: true,
     },
     {
       id: 'frango-parmegiana-media',
@@ -178,8 +171,7 @@ export const seedSiteData: SiteData = {
       dishOfDay: false,
       prepTime: '25 a 35 min',
       tags: ['Popular', 'Media'],
-      addonTitle: 'Guarnicoes',
-      addonOptions: mealExtras,
+      usesGlobalGarnishes: true,
     },
     {
       id: 'frango-milanesa-pequena',
@@ -194,8 +186,7 @@ export const seedSiteData: SiteData = {
       dishOfDay: false,
       prepTime: '20 a 30 min',
       tags: ['Fixo', 'Pequena'],
-      addonTitle: 'Guarnicoes',
-      addonOptions: mealExtras,
+      usesGlobalGarnishes: true,
     },
     {
       id: 'frango-milanesa-media',
@@ -210,8 +201,7 @@ export const seedSiteData: SiteData = {
       dishOfDay: false,
       prepTime: '20 a 30 min',
       tags: ['Fixo', 'Media'],
-      addonTitle: 'Guarnicoes',
-      addonOptions: mealExtras,
+      usesGlobalGarnishes: true,
     },
     {
       id: 'frango-grelhado-pequena',
@@ -226,8 +216,7 @@ export const seedSiteData: SiteData = {
       dishOfDay: false,
       prepTime: '20 a 30 min',
       tags: ['Fixo', 'Pequena'],
-      addonTitle: 'Guarnicoes',
-      addonOptions: mealExtras,
+      usesGlobalGarnishes: true,
     },
     {
       id: 'frango-grelhado-media',
@@ -242,8 +231,7 @@ export const seedSiteData: SiteData = {
       dishOfDay: false,
       prepTime: '20 a 30 min',
       tags: ['Fixo', 'Media'],
-      addonTitle: 'Guarnicoes',
-      addonOptions: mealExtras,
+      usesGlobalGarnishes: true,
     },
     {
       id: 'omelete-presunto-queijo-pequena',
@@ -258,8 +246,7 @@ export const seedSiteData: SiteData = {
       dishOfDay: false,
       prepTime: '15 a 25 min',
       tags: ['Fixo', 'Pequena'],
-      addonTitle: 'Guarnicoes',
-      addonOptions: mealExtras,
+      usesGlobalGarnishes: true,
     },
     {
       id: 'omelete-presunto-queijo-media',
@@ -274,8 +261,7 @@ export const seedSiteData: SiteData = {
       dishOfDay: false,
       prepTime: '15 a 25 min',
       tags: ['Fixo', 'Media'],
-      addonTitle: 'Guarnicoes',
-      addonOptions: mealExtras,
+      usesGlobalGarnishes: true,
     },
     {
       id: 'omelete-queijo-pequena',
@@ -290,8 +276,7 @@ export const seedSiteData: SiteData = {
       dishOfDay: false,
       prepTime: '15 a 25 min',
       tags: ['Fixo', 'Pequena'],
-      addonTitle: 'Guarnicoes',
-      addonOptions: mealExtras,
+      usesGlobalGarnishes: true,
     },
     {
       id: 'omelete-queijo-media',
@@ -306,8 +291,7 @@ export const seedSiteData: SiteData = {
       dishOfDay: false,
       prepTime: '15 a 25 min',
       tags: ['Fixo', 'Media'],
-      addonTitle: 'Guarnicoes',
-      addonOptions: mealExtras,
+      usesGlobalGarnishes: true,
     },
     {
       id: 'bife-contra-file-pequena',
@@ -322,8 +306,7 @@ export const seedSiteData: SiteData = {
       dishOfDay: false,
       prepTime: '25 a 35 min',
       tags: ['Fixo', 'Pequena'],
-      addonTitle: 'Guarnicoes',
-      addonOptions: mealExtras,
+      usesGlobalGarnishes: true,
     },
     {
       id: 'bife-contra-file-media',
@@ -338,8 +321,7 @@ export const seedSiteData: SiteData = {
       dishOfDay: false,
       prepTime: '25 a 35 min',
       tags: ['Fixo', 'Media'],
-      addonTitle: 'Guarnicoes',
-      addonOptions: mealExtras,
+      usesGlobalGarnishes: true,
     },
     {
       id: 'parmegiana-contra-file-pequena',
@@ -354,8 +336,7 @@ export const seedSiteData: SiteData = {
       dishOfDay: false,
       prepTime: '30 a 40 min',
       tags: ['Fixo', 'Pequena'],
-      addonTitle: 'Guarnicoes',
-      addonOptions: mealExtras,
+      usesGlobalGarnishes: true,
     },
     {
       id: 'parmegiana-contra-file-media',
@@ -370,8 +351,7 @@ export const seedSiteData: SiteData = {
       dishOfDay: false,
       prepTime: '30 a 40 min',
       tags: ['Fixo', 'Media'],
-      addonTitle: 'Guarnicoes',
-      addonOptions: mealExtras,
+      usesGlobalGarnishes: true,
     },
     {
       id: 'ovo-frito-extra',
@@ -549,6 +529,11 @@ export const seedSiteData: SiteData = {
       baseEtaMinutes: 25,
       etaStepMinutes: 6,
     },
+    garnishConfig: {
+      title: 'Guarnicoes',
+      maxSelections: 2,
+      options: mealExtras,
+    },
     adminCredentials: {
       username: 'admin',
       password: 'nida123',
@@ -556,4 +541,3 @@ export const seedSiteData: SiteData = {
   },
   updatedAt: new Date().toISOString(),
 };
-
