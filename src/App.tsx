@@ -215,6 +215,7 @@ function buildMenuGroups(menu: MenuItem[]) {
     }
 
     currentGroup.items.push(item);
+    currentGroup.image = currentGroup.image || item.image;
     currentGroup.available = currentGroup.available || item.available;
     currentGroup.featured = currentGroup.featured || item.featured;
     currentGroup.dishOfDay = currentGroup.dishOfDay || item.dishOfDay;
@@ -1270,6 +1271,11 @@ function App() {
                 aria-expanded={isOpen}
                 aria-controls={`menu-group-${group.id}`}
               >
+                {group.image ? (
+                  <div className="menu-drawer-thumb">
+                    <img src={group.image} alt={group.name} />
+                  </div>
+                ) : null}
                 <div className="menu-drawer-main">
                   <div className="menu-card-header menu-drawer-header">
                     <div>
