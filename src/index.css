@@ -1182,6 +1182,12 @@ h3,
   text-align: left;
 }
 
+.contact-link .small-icon {
+  flex-shrink: 0;
+  align-self: center;
+  display: block;
+}
+
 .admin-link {
   width: 100%;
 }
