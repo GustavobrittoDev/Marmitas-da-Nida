@@ -493,6 +493,11 @@ h3,
   color: var(--primary-deep);
 }
 
+.icon-wrap .section-icon {
+  display: block;
+  flex-shrink: 0;
+}
+
 .hero-visual {
   position: relative;
   min-height: 18rem;

@@ -109,10 +109,11 @@ export function Icon({ name, className }: IconProps) {
     case 'delivery':
       return (
         <SvgIcon className={className}>
-          <path d="M3 8.5h11v7H3z" />
-          <path d="M14 10h3l2 2.5V15h-5" />
-          <circle cx="7" cy="16.5" r="1.5" />
-          <circle cx="17" cy="16.5" r="1.5" />
+          <rect x="3.5" y="8" width="10.5" height="6.5" rx="1.2" />
+          <path d="M14 10h2.8l2.2 2.5v2H14" />
+          <circle cx="7.25" cy="16.5" r="1.35" />
+          <circle cx="16.85" cy="16.5" r="1.35" />
+          <path d="M5.2 10.8h3.6" />
         </SvgIcon>
       );
     case 'motoboy':
