@@ -113,6 +113,10 @@ export function getOrderStatusLabel(status: OrderStatus) {
     return 'Finalizado';
   }
 
+  if (status === 'cancelled') {
+    return 'Cancelado';
+  }
+
   return 'Recebido';
 }
 

@@ -154,7 +154,7 @@ export type CheckoutData = {
   notes: string;
 };
 
-export type OrderStatus = 'received' | 'preparing' | 'on_the_way' | 'completed';
+export type OrderStatus = 'received' | 'preparing' | 'on_the_way' | 'completed' | 'cancelled';
 
 export type OrderItemSnapshot = {
   id: string;

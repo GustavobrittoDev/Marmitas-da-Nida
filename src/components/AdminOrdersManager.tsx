@@ -19,7 +19,7 @@ type AdminOrdersManagerProps = {
   ) => Promise<{ success: boolean; error?: string }>;
 };
 
-type BoardFilter = 'active' | 'all' | 'completed';
+type BoardFilter = 'active' | 'all' | 'closed';
 
 type StatusColumn = {
   status: OrderStatus;
@@ -53,6 +53,12 @@ const statusColumns: StatusColumn[] = [
     subtitle: 'Pedidos concluidos e entregues',
     icon: 'check',
   },
+  {
+    status: 'cancelled',
+    title: 'Cancelados',
+    subtitle: 'Pedidos encerrados sem concluir a entrega',
+    icon: 'close',
+  },
 ];
 
 function getOrderStatusClassName(status: OrderStatus) {
@@ -66,6 +72,10 @@ function getOrderStatusClassName(status: OrderStatus) {
 
   if (status === 'completed') {
     return 'is-completed';
+  }
+
+  if (status === 'cancelled') {
+    return 'is-cancelled';
   }
 
   return 'is-received';
@@ -138,16 +148,20 @@ function getNextStatusActionLabel(status: OrderStatus) {
 }
 
 function sortOrdersForBoard(orders: OrderRecord[]) {
+  const statusPriority: Record<OrderStatus, number> = {
+    received: 0,
+    preparing: 1,
+    on_the_way: 2,
+    completed: 3,
+    cancelled: 4,
+  };
+
   return [...orders].sort((left, right) => {
-    if (left.status === 'completed' && right.status !== 'completed') {
-      return 1;
+    if (statusPriority[left.status] !== statusPriority[right.status]) {
+      return statusPriority[left.status] - statusPriority[right.status];
     }
 
-    if (left.status !== 'completed' && right.status === 'completed') {
-      return -1;
-    }
-
-    if (left.status === 'completed' && right.status === 'completed') {
+    if (left.status === 'completed' || left.status === 'cancelled') {
       return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
     }
 
@@ -176,9 +190,13 @@ export function AdminOrdersManager({
     const byFilter =
       boardFilter === 'all'
         ? sortedOrders
-        : boardFilter === 'completed'
-          ? sortedOrders.filter((order) => order.status === 'completed')
-          : sortedOrders.filter((order) => order.status !== 'completed');
+        : boardFilter === 'closed'
+          ? sortedOrders.filter(
+              (order) => order.status === 'completed' || order.status === 'cancelled',
+            )
+          : sortedOrders.filter(
+              (order) => order.status !== 'completed' && order.status !== 'cancelled',
+            );
 
     if (!normalizedSearch) {
       return byFilter;
@@ -200,9 +218,25 @@ export function AdminOrdersManager({
     });
   }, [boardFilter, normalizedSearch, sortedOrders]);
 
+  const visibleColumns = useMemo(() => {
+    if (boardFilter === 'closed') {
+      return statusColumns.filter(
+        (column) => column.status === 'completed' || column.status === 'cancelled',
+      );
+    }
+
+    if (boardFilter === 'active') {
+      return statusColumns.filter(
+        (column) => column.status !== 'completed' && column.status !== 'cancelled',
+      );
+    }
+
+    return statusColumns;
+  }, [boardFilter]);
+
   const selectedOrder =
     visibleOrders.find((order) => order.id === selectedOrderId) ??
-    visibleOrders.find((order) => order.status !== 'completed') ??
+    visibleOrders.find((order) => order.status !== 'completed' && order.status !== 'cancelled') ??
     visibleOrders[0] ??
     null;
 
@@ -218,7 +252,10 @@ export function AdminOrdersManager({
   }, [selectedOrder, selectedOrderId]);
 
   const metrics = useMemo(() => {
-    const activeOrders = orders.filter((order) => order.status !== 'completed');
+    const activeOrders = orders.filter(
+      (order) => order.status !== 'completed' && order.status !== 'cancelled',
+    );
+    const cancelledOrders = orders.filter((order) => order.status === 'cancelled');
     const deliveryOrders = orders.filter((order) => order.deliveryType === 'delivery');
     const averageTicket = orders.length
       ? orders.reduce((sum, order) => sum + order.total, 0) / orders.length
@@ -228,6 +265,7 @@ export function AdminOrdersManager({
     return {
       total: orders.length,
       active: activeOrders.length,
+      cancelled: cancelledOrders.length,
       delivery: deliveryOrders.length,
       pickup: orders.length - deliveryOrders.length,
       averageTicket,
@@ -249,6 +287,9 @@ export function AdminOrdersManager({
       setUpdatingOrderId(null);
     }
   };
+
+  const canCancelSelectedOrder =
+    selectedOrder && selectedOrder.status !== 'completed' && selectedOrder.status !== 'cancelled';
 
   return (
     <section className="admin-orders-pro">
@@ -275,6 +316,10 @@ export function AdminOrdersManager({
             <strong>
               {metrics.delivery}/{metrics.pickup}
             </strong>
+          </article>
+          <article className="stat-card admin-order-stat">
+            <span>Cancelados</span>
+            <strong>{metrics.cancelled}</strong>
           </article>
         </div>
       </div>
@@ -307,10 +352,10 @@ export function AdminOrdersManager({
             </button>
             <button
               type="button"
-              className={`ghost-button ${boardFilter === 'completed' ? 'is-active' : ''}`}
-              onClick={() => setBoardFilter('completed')}
+              className={`ghost-button ${boardFilter === 'closed' ? 'is-active' : ''}`}
+              onClick={() => setBoardFilter('closed')}
             >
-              Finalizados
+              Encerrados
             </button>
           </div>
 
@@ -328,7 +373,7 @@ export function AdminOrdersManager({
       ) : visibleOrders.length ? (
         <div className="admin-orders-workspace">
           <div className="admin-orders-board">
-            {statusColumns.map((column) => {
+            {visibleColumns.map((column) => {
               const columnOrders = visibleOrders.filter((order) => order.status === column.status);
 
               return (
@@ -468,14 +513,26 @@ export function AdminOrdersManager({
                       </button>
                     ))}
                   </div>
-                  <a
-                    className="secondary-button"
-                    href={buildCustomerWhatsAppUrl(selectedOrder.customerPhone)}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Abrir WhatsApp
-                  </a>
+                  <div className="admin-order-detail-action-links">
+                    <a
+                      className="secondary-button"
+                      href={buildCustomerWhatsAppUrl(selectedOrder.customerPhone)}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Abrir WhatsApp
+                    </a>
+                    {canCancelSelectedOrder ? (
+                      <button
+                        type="button"
+                        className="ghost-button danger-button"
+                        disabled={updatingOrderId === selectedOrder.id}
+                        onClick={() => void handleStatusChange(selectedOrder.id, 'cancelled')}
+                      >
+                        {updatingOrderId === selectedOrder.id ? 'Atualizando...' : 'Cancelar pedido'}
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
 
                 <div className="admin-order-detail-sections">
