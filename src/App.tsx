@@ -4,9 +4,15 @@ import { AdminPanel } from './components/AdminPanel';
 import { Icon, IconName } from './components/Icon';
 import { seedSiteData } from './data/seedData';
 import { usePersistentState } from './hooks/usePersistentState';
+import {
+  createRemoteOrder,
+  fetchRemoteOrders,
+  subscribeToRemoteOrders,
+  updateRemoteOrderStatus,
+} from './lib/ordersState';
 import { fetchRemoteSiteData, saveRemoteSiteData, subscribeToRemoteSiteData } from './lib/siteState';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
-import { AddonOption, CartItem, CheckoutData, MenuItem, SiteData } from './types';
+import { AddonOption, CartItem, CheckoutData, MenuItem, OrderRecord, OrderStatus, SiteData } from './types';
 import { getBusinessStatus } from './utils/business';
 import {
   buildCustomerAddressQuery,
@@ -21,6 +27,7 @@ import {
 } from './utils/delivery';
 import { formatCurrency, sanitizePhoneNumber } from './utils/format';
 import { getItemOptionConfig, isLegacyGarnishOptionSet, normalizeOptionSelection } from './utils/menuOptions';
+import { buildOrderRecord } from './utils/orders';
 import { buildWhatsAppUrl } from './utils/whatsapp';
 
 type MenuGroup = {
@@ -73,11 +80,21 @@ type DeliveryInfoState =
   | ReturnType<typeof calculateDeliveryInfo>;
 type AdminAuthMode = 'local' | 'supabase';
 type SyncStatus = 'local' | 'connecting' | 'online' | 'saving' | 'error';
+type AppRoute = 'storefront' | 'admin';
 
 const siteDataStorageKey = 'nida-site-data-v2';
 const siteDataSourceStorageKey = 'nida-site-data-source';
 const customSiteDataStorageKey = 'nida-site-data-custom';
+const localOrdersStorageKey = 'nida-orders-local';
 const sizePattern = /\s*-\s*(Pequena|Media)$/i;
+
+function getAppRoute() {
+  if (typeof window === 'undefined') {
+    return 'storefront' as AppRoute;
+  }
+
+  return window.location.hash.startsWith('#/admin') ? 'admin' : 'storefront';
+}
 
 function getHighlightIcon(highlight: string): IconName {
   const normalized = highlight.toLowerCase();
@@ -263,11 +280,12 @@ function App() {
   );
   const [cart, setCart] = usePersistentState<CartItem[]>('nida-cart', []);
   const [checkout, setCheckout] = usePersistentState<CheckoutData>('nida-checkout', emptyCheckout);
+  const [localOrders, setLocalOrders] = usePersistentState<OrderRecord[]>(localOrdersStorageKey, []);
   const [activeCategoryId, setActiveCategoryId] = useState(siteData.categories[0]?.id ?? '');
   const [itemSheet, setItemSheet] = useState<ItemSheetState | null>(null);
   const [cartOpen, setCartOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [adminOpen, setAdminOpen] = useState(false);
+  const [route, setRoute] = useState<AppRoute>(() => getAppRoute());
   const [openInfoDrawer, setOpenInfoDrawer] = useState<InfoDrawerKey | null>(null);
   const [openMenuGroupId, setOpenMenuGroupId] = useState<string | null>(null);
   const [menuCardSelections, setMenuCardSelections] = useState<Record<string, MenuCardSelection>>({});
@@ -282,6 +300,11 @@ function App() {
   );
   const [syncError, setSyncError] = useState('');
   const [remoteReady, setRemoteReady] = useState(!isSupabaseConfigured);
+  const [remoteOrders, setRemoteOrders] = useState<OrderRecord[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [ordersError, setOrdersError] = useState('');
+  const [checkoutSubmitting, setCheckoutSubmitting] = useState(false);
+  const [checkoutSubmitMessage, setCheckoutSubmitMessage] = useState('');
   const [, setTimeTick] = useState(Date.now());
   const [deliveryInfo, setDeliveryInfo] = useState<DeliveryInfoState>(() =>
     getIdleDeliveryInfo(seedSiteData.site.deliveryPricing),
@@ -295,12 +318,27 @@ function App() {
   const adminAuthenticated = isSupabaseConfigured
     ? remoteAdminAuthenticated
     : localAdminAuthenticated;
+  const orders = isSupabaseConfigured ? remoteOrders : localOrders;
   const restaurantLocation = siteData.site.restaurantLocation ?? seedSiteData.site.restaurantLocation;
   const deliveryPricing = siteData.site.deliveryPricing ?? seedSiteData.site.deliveryPricing;
 
   useEffect(() => {
     const interval = window.setInterval(() => setTimeTick(Date.now()), 60000);
     return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const syncRoute = () => {
+      setRoute(getAppRoute());
+    };
+
+    syncRoute();
+    window.addEventListener('hashchange', syncRoute);
+    return () => window.removeEventListener('hashchange', syncRoute);
   }, []);
 
   useEffect(() => {
@@ -472,6 +510,72 @@ function App() {
       window.clearTimeout(timeout);
     };
   }, [remoteAdminAuthenticated, remoteReady, siteData]);
+
+  const loadRemoteOrdersList = async () => {
+    if (!isSupabaseConfigured || !supabase) {
+      setOrdersError('');
+      setOrdersLoading(false);
+      return;
+    }
+
+    setOrdersLoading(true);
+    const result = await fetchRemoteOrders();
+
+    if (result.error) {
+      setOrdersError(result.error);
+      setOrdersLoading(false);
+      return;
+    }
+
+    setRemoteOrders(result.data);
+    setOrdersError('');
+    setOrdersLoading(false);
+  };
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) {
+      return;
+    }
+
+    if (!remoteAdminAuthenticated || route !== 'admin') {
+      if (!remoteAdminAuthenticated) {
+        setRemoteOrders([]);
+      }
+      setOrdersLoading(false);
+      setOrdersError('');
+      return;
+    }
+
+    let isActive = true;
+
+    void (async () => {
+      await loadRemoteOrdersList();
+    })();
+
+    const unsubscribe = subscribeToRemoteOrders(
+      (nextOrders) => {
+        if (!isActive) {
+          return;
+        }
+
+        setRemoteOrders(nextOrders);
+        setOrdersError('');
+        setOrdersLoading(false);
+      },
+      (message) => {
+        if (!isActive) {
+          return;
+        }
+
+        setOrdersError(message);
+      },
+    );
+
+    return () => {
+      isActive = false;
+      unsubscribe();
+    };
+  }, [remoteAdminAuthenticated, route]);
 
   useEffect(() => {
     const hasLegacyCategories = siteData.categories.some((category) => category.id === 'marmitas-dia');
@@ -1292,6 +1396,20 @@ function App() {
     setOpenMenuGroupId((current) => (current === groupId ? null : groupId));
   };
 
+  const navigateToRoute = (nextRoute: AppRoute) => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const nextHash = nextRoute === 'admin' ? '#/admin' : '#/';
+
+    if (window.location.hash !== nextHash) {
+      window.location.hash = nextHash;
+    }
+
+    setRoute(nextRoute);
+  };
+
   const loginAdmin = async (username: string, password: string) => {
     if (isSupabaseConfigured && supabase) {
       const { error } = await supabase.auth.signInWithPassword({
@@ -1334,11 +1452,98 @@ function App() {
     setLocalAdminAuthenticated(false);
   };
 
-  const finalizeOrder = (event: FormEvent<HTMLFormElement>) => {
+  const handleUpdateOrderStatus = async (orderId: string, status: OrderStatus) => {
+    if (!isSupabaseConfigured) {
+      setLocalOrders((current) =>
+        current.map((order) =>
+          order.id === orderId
+            ? { ...order, status, updatedAt: new Date().toISOString() }
+            : order,
+        ),
+      );
+
+      return {
+        success: true,
+      };
+    }
+
+    const currentOrder = remoteOrders.find((order) => order.id === orderId);
+
+    if (!currentOrder || !supabase) {
+      return {
+        success: false,
+        error: 'Pedido nao encontrado para atualizar.',
+      };
+    }
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const result = await updateRemoteOrderStatus(currentOrder, status, user?.id);
+
+    if (result.error) {
+      return {
+        success: false,
+        error: result.error,
+      };
+    }
+
+    if (result.data) {
+      setRemoteOrders((current) =>
+        current.map((order) => (order.id === orderId ? result.data! : order)),
+      );
+    }
+
+    return {
+      success: true,
+    };
+  };
+
+  const finalizeOrder = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!cartLines.length) {
+    if (!cartLines.length || checkoutSubmitting) {
       return;
+    }
+
+    setCheckoutSubmitting(true);
+    setCheckoutSubmitMessage('');
+    const pendingPopup = window.open('', '_blank');
+
+    const orderRecord = buildOrderRecord({
+      checkout,
+      deliveryFee: deliveryInfo.fee,
+      deliveryMessage: deliveryInfo.message,
+      deliveryEta: deliveryInfo.eta,
+      deliveryDistanceKm: deliveryInfo.distanceKm,
+      subtotal,
+      total,
+      items: cartLines.map((line) => ({
+        cartItemId: line.cartItem.id,
+        itemId: line.menuItem.id,
+        name: line.menuItem.name,
+        quantity: line.cartItem.quantity,
+        notes: line.cartItem.notes,
+        sizeLabel: getMenuItemSizeLabel(line.menuItem) ?? '',
+        addonLabel: getAddonLabel(siteData.site, line.menuItem),
+        addonNames: line.addonLabels,
+        unitTotal: line.unitTotal,
+        lineTotal: line.lineTotal,
+        image: line.menuItem.image,
+      })),
+    });
+
+    let orderSaveError = '';
+
+    if (isSupabaseConfigured) {
+      const saveResult = await createRemoteOrder(orderRecord);
+
+      if (saveResult.error) {
+        orderSaveError = saveResult.error;
+        setLocalOrders((current) => [orderRecord, ...current]);
+      }
+    } else {
+      setLocalOrders((current) => [orderRecord, ...current]);
     }
 
     const url = buildWhatsAppUrl({
@@ -1348,13 +1553,49 @@ function App() {
       subtotal,
       deliveryFee: deliveryInfo.fee,
       total,
+      orderCode: orderRecord.code,
     });
 
-    const popup = window.open(url, '_blank', 'noopener,noreferrer');
-    if (!popup) {
+    if (pendingPopup) {
+      pendingPopup.location.href = url;
+    } else {
       window.location.href = url;
     }
+
+    setCheckoutSubmitMessage(
+      orderSaveError
+        ? `Pedido enviado ao WhatsApp, mas nao foi possivel salvar online: ${orderSaveError}`
+        : `Pedido ${orderRecord.code} salvo com sucesso e enviado para o WhatsApp.`,
+    );
+    setCheckoutSubmitting(false);
   };
+
+  if (route === 'admin') {
+    return (
+      <AdminPanel
+        authenticated={adminAuthenticated}
+        authMode={authMode}
+        syncStatus={syncStatus}
+        syncError={syncError}
+        adminUserEmail={adminSessionEmail}
+        onNavigateHome={() => navigateToRoute('storefront')}
+        onLogin={loginAdmin}
+        onLogout={logoutAdmin}
+        orders={orders}
+        ordersLoading={isSupabaseConfigured ? ordersLoading : false}
+        ordersError={ordersError}
+        onRefreshOrders={loadRemoteOrdersList}
+        onUpdateOrderStatus={handleUpdateOrderStatus}
+        siteData={siteData}
+        onChange={(next) => {
+          if (!isSupabaseConfigured) {
+            setSiteDataSource('custom');
+          }
+          setSiteData(next);
+        }}
+      />
+    );
+  }
 
   return (
     <>
@@ -1377,7 +1618,7 @@ function App() {
               <button
                 type="button"
                 className="ghost-button desktop-action"
-                onClick={() => setAdminOpen(true)}
+                onClick={() => navigateToRoute('admin')}
               >
                 Painel
               </button>
@@ -1590,7 +1831,7 @@ function App() {
                   <button
                     type="button"
                     className="contact-link admin-link"
-                    onClick={() => setAdminOpen(true)}
+                    onClick={() => navigateToRoute('admin')}
                   >
                     <Icon name="lock" className="small-icon" />
                     <span>Area administrativa</span>
@@ -2141,36 +2382,23 @@ function App() {
                     <strong>{formatCurrency(total)}</strong>
                   </div>
                 </div>
+
+                {checkoutSubmitMessage ? <p className="checkout-submit-message">{checkoutSubmitMessage}</p> : null}
               </div>
 
               <div className="sheet-footer">
-                <button type="submit" className="primary-button wide-button" disabled={!cartLines.length}>
-                  Finalizar pedido no WhatsApp
+                <button
+                  type="submit"
+                  className="primary-button wide-button"
+                  disabled={!cartLines.length || checkoutSubmitting}
+                >
+                  {checkoutSubmitting ? 'Salvando pedido...' : 'Finalizar pedido no WhatsApp'}
                 </button>
               </div>
             </form>
           </div>
         </div>
       ) : null}
-
-      <AdminPanel
-        open={adminOpen}
-        authenticated={adminAuthenticated}
-        authMode={authMode}
-        syncStatus={syncStatus}
-        syncError={syncError}
-        adminUserEmail={adminSessionEmail}
-        onClose={() => setAdminOpen(false)}
-        onLogin={loginAdmin}
-        onLogout={logoutAdmin}
-        siteData={siteData}
-        onChange={(next) => {
-          if (!isSupabaseConfigured) {
-            setSiteDataSource('custom');
-          }
-          setSiteData(next);
-        }}
-      />
     </>
   );
 }

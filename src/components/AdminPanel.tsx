@@ -1,26 +1,34 @@
 import { ChangeEvent, DragEvent, FormEvent, ReactNode, useRef, useState } from 'react';
-import { Category, CategoryIcon, MenuItem, SiteData } from '../types';
+import { AdminOrdersManager } from './AdminOrdersManager';
+import { Category, CategoryIcon, MenuItem, OrderRecord, OrderStatus, SiteData } from '../types';
 import { formatCurrency, slugify } from '../utils/format';
 import { Icon, IconName } from './Icon';
 
 type AdminPanelProps = {
-  open: boolean;
   authenticated: boolean;
   authMode: 'local' | 'supabase';
   syncStatus: 'local' | 'connecting' | 'online' | 'saving' | 'error';
   syncError: string;
   adminUserEmail: string | null;
-  onClose: () => void;
+  onNavigateHome: () => void;
   onLogin: (
     username: string,
     password: string,
   ) => Promise<{ success: boolean; error?: string }>;
   onLogout: () => Promise<void> | void;
+  orders: OrderRecord[];
+  ordersLoading: boolean;
+  ordersError: string;
+  onRefreshOrders: () => Promise<void> | void;
+  onUpdateOrderStatus: (
+    orderId: string,
+    status: OrderStatus,
+  ) => Promise<{ success: boolean; error?: string }>;
   siteData: SiteData;
   onChange: (next: SiteData) => void;
 };
 
-type AdminSectionKey = 'overview' | 'home' | 'menu' | 'settings';
+type AdminSectionKey = 'orders' | 'overview' | 'home' | 'menu' | 'settings';
 
 type ItemFormState = {
   id: string | null;
@@ -224,20 +232,24 @@ function AdminDrawerSection({
 }
 
 export function AdminPanel({
-  open,
   authenticated,
   authMode,
   syncStatus,
   syncError,
   adminUserEmail,
-  onClose,
+  onNavigateHome,
   onLogin,
   onLogout,
+  orders,
+  ordersLoading,
+  ordersError,
+  onRefreshOrders,
+  onUpdateOrderStatus,
   siteData,
   onChange,
 }: AdminPanelProps) {
   const imageInputRef = useRef<HTMLInputElement | null>(null);
-  const [openSection, setOpenSection] = useState<AdminSectionKey | null>('overview');
+  const [openSection, setOpenSection] = useState<AdminSectionKey | null>('orders');
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
@@ -251,10 +263,6 @@ export function AdminPanel({
   const [imageDropActive, setImageDropActive] = useState(false);
   const [imageLoading, setImageLoading] = useState(false);
   const [imageError, setImageError] = useState('');
-
-  if (!open) {
-    return null;
-  }
 
   const commit = (next: SiteData) => {
     onChange({
@@ -846,17 +854,23 @@ export function AdminPanel({
   );
 
   return (
-    <div className="overlay-shell">
-      <div className="admin-panel">
-        <div className="overlay-header">
+    <div className="admin-page-shell">
+      <div className="admin-page-frame">
+        <div className="admin-page-header">
           <div>
             <p className="eyebrow">Painel administrativo</p>
-            <h2>Edite o site em gavetas, de forma mais rapida e organizada</h2>
+            <h1>Gerencie cardapio, pedidos e operacao em uma pagina dedicada</h1>
+            <p className="admin-page-subtitle">
+              O WhatsApp continua sendo usado no atendimento, mas os pedidos agora podem ficar
+              salvos aqui para acompanhamento da marmitaria.
+            </p>
           </div>
-          <button type="button" className="icon-button ghost-button" onClick={onClose}>
-            <Icon name="close" className="tiny-icon" />
+          <button type="button" className="secondary-button" onClick={onNavigateHome}>
+            Voltar ao site
           </button>
         </div>
+
+        <div className="admin-panel admin-page-panel">
 
         {!authenticated ? (
           <div className="admin-login-card">
@@ -941,6 +955,38 @@ export function AdminPanel({
               </div>
 
               <div className="admin-section-list">
+                <AdminDrawerSection
+                  sectionKey="orders"
+                  openSection={openSection}
+                  onToggle={toggleSection}
+                  icon="cart"
+                  eyebrow="Pedidos"
+                  title="Painel de pedidos da marmitaria"
+                  summary="Veja tudo o que entrou no site, acompanhe o andamento e altere o status sem sair desta pagina."
+                  meta={`${orders.length} pedido(s) salvo(s) no sistema`}
+                >
+                  <section className="admin-section">
+                    <div className="admin-card">
+                      <div className="admin-card-header">
+                        <div className="admin-section-heading">
+                          <h3>Central de pedidos</h3>
+                          <p>
+                            Todo pedido finalizado continua indo para o WhatsApp, mas tambem fica
+                            salvo aqui para a equipe visualizar, organizar e mudar o andamento.
+                          </p>
+                        </div>
+                      </div>
+                      <AdminOrdersManager
+                        orders={orders}
+                        loading={ordersLoading}
+                        error={ordersError}
+                        onRefresh={onRefreshOrders}
+                        onStatusChange={onUpdateOrderStatus}
+                      />
+                    </div>
+                  </section>
+                </AdminDrawerSection>
+
                 <AdminDrawerSection
                   sectionKey="overview"
                   openSection={openSection}
@@ -1864,6 +1910,7 @@ export function AdminPanel({
             </div>
           </>
         )}
+        </div>
       </div>
     </div>
   );

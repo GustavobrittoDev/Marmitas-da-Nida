@@ -48,8 +48,9 @@ export function buildWhatsAppMessage(params: {
   subtotal: number;
   deliveryFee: number;
   total: number;
+  orderCode?: string;
 }) {
-  const { siteData, cartLines, checkout, subtotal, deliveryFee, total } = params;
+  const { siteData, cartLines, checkout, subtotal, deliveryFee, total, orderCode } = params;
   const itemLines = cartLines
     .map(({ cartItem, menuItem, addonLabels, lineTotal }) => {
       const addonText = addonLabels.length
@@ -67,6 +68,7 @@ export function buildWhatsAppMessage(params: {
 
   return [
     `Ola, gostaria de fazer um pedido na ${siteData.site.businessName}.`,
+    orderCode ? `Codigo do pedido: ${orderCode}` : null,
     '',
     '*Itens do pedido:*',
     itemLines,
@@ -89,7 +91,9 @@ export function buildWhatsAppMessage(params: {
     '',
     '*Observacoes:*',
     checkout.notes || 'Sem observacoes.',
-  ].join('\n');
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
 }
 
 export function buildWhatsAppUrl(params: {
@@ -99,6 +103,7 @@ export function buildWhatsAppUrl(params: {
   subtotal: number;
   deliveryFee: number;
   total: number;
+  orderCode?: string;
 }) {
   const phoneNumber = sanitizePhoneNumber(params.siteData.site.whatsappNumber);
   const message = encodeURIComponent(buildWhatsAppMessage(params));

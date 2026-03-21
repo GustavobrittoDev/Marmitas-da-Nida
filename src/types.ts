@@ -153,3 +153,48 @@ export type CheckoutData = {
   changeFor: string;
   notes: string;
 };
+
+export type OrderStatus = 'received' | 'preparing' | 'on_the_way' | 'completed';
+
+export type OrderItemSnapshot = {
+  id: string;
+  itemId: string;
+  name: string;
+  quantity: number;
+  notes: string;
+  sizeLabel: string;
+  addonLabel: string;
+  addonNames: string[];
+  unitTotal: number;
+  lineTotal: number;
+  image: string;
+};
+
+export type OrderRecord = {
+  id: string;
+  code: string;
+  status: OrderStatus;
+  createdAt: string;
+  updatedAt: string;
+  customerName: string;
+  customerPhone: string;
+  deliveryType: DeliveryType;
+  paymentMethod: PaymentMethod;
+  changeFor: string;
+  notes: string;
+  address: {
+    street: string;
+    number: string;
+    neighborhood: string;
+    complement: string;
+    reference: string;
+    formatted: string;
+  };
+  deliveryMessage: string;
+  deliveryEta: string;
+  deliveryDistanceKm: number | null;
+  subtotal: number;
+  deliveryFee: number;
+  total: number;
+  items: OrderItemSnapshot[];
+};
