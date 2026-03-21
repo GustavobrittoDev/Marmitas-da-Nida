@@ -31,21 +31,45 @@ type AdminPanelProps = {
 
 type AdminSectionKey = 'orders' | 'home' | 'menu' | 'settings';
 
-type ItemFormState = {
+type ItemVariantFormState = {
   id: string | null;
-  categoryId: string;
-  name: string;
-  description: string;
+  sizeLabel: string;
   price: string;
+  available: boolean;
+};
+
+type AdminMenuItemGroup = {
+  id: string;
+  sourceItemIds: string[];
+  categoryId: string;
+  baseName: string;
+  description: string;
   image: string;
   prepTime: string;
   tags: string;
   usesGlobalGarnishes: boolean;
   addonTitle: string;
   addonOptions: string;
-  available: boolean;
   featured: boolean;
   dishOfDay: boolean;
+  variants: ItemVariantFormState[];
+};
+
+type ItemFormState = {
+  groupId: string | null;
+  sourceItemIds: string[];
+  categoryId: string;
+  baseName: string;
+  description: string;
+  image: string;
+  prepTime: string;
+  tags: string;
+  usesGlobalGarnishes: boolean;
+  addonTitle: string;
+  addonOptions: string;
+  featured: boolean;
+  dishOfDay: boolean;
+  variants: ItemVariantFormState[];
 };
 
 type AdminDrawerSectionProps = {
@@ -69,42 +93,194 @@ const emptyCategory: Category = {
   icon: 'meal',
 };
 
+const sizePattern = /\s*-\s*(Pequena|Media)$/i;
+
+function normalizeSizeLabel(label: string) {
+  const normalized = label.trim().toLowerCase();
+
+  if (!normalized || normalized === 'unico') {
+    return '';
+  }
+
+  if (normalized === 'pequena') {
+    return 'Pequena';
+  }
+
+  if (normalized === 'media') {
+    return 'Media';
+  }
+
+  return label.trim();
+}
+
+function createEmptyVariant(sizeLabel = ''): ItemVariantFormState {
+  return {
+    id: null,
+    sizeLabel: normalizeSizeLabel(sizeLabel),
+    price: '',
+    available: true,
+  };
+}
+
+function getDefaultVariants(categoryId?: string) {
+  if (categoryId === 'especial-do-dia' || categoryId === 'pratos-fixos') {
+    return [createEmptyVariant('Pequena'), createEmptyVariant('Media')];
+  }
+
+  return [createEmptyVariant()];
+}
+
 const emptyItem: ItemFormState = {
-  id: null,
+  groupId: null,
+  sourceItemIds: [],
   categoryId: '',
-  name: '',
+  baseName: '',
   description: '',
-  price: '',
   image: '',
   prepTime: '',
   tags: '',
   usesGlobalGarnishes: false,
   addonTitle: '',
   addonOptions: '',
-  available: true,
   featured: false,
   dishOfDay: false,
+  variants: [createEmptyVariant()],
 };
 
-function mapItemToForm(item: MenuItem): ItemFormState {
+function getBaseItemName(name: string) {
+  return name.replace(sizePattern, '').trim();
+}
+
+function getItemSizeLabel(item: Pick<MenuItem, 'name' | 'tags'>) {
+  const match = item.name.match(sizePattern);
+
+  if (match) {
+    return normalizeSizeLabel(match[1]);
+  }
+
+  return normalizeSizeLabel(item.tags.find((tag) => tag === 'Pequena' || tag === 'Media') ?? '');
+}
+
+function buildVariantName(baseName: string, sizeLabel: string) {
+  const normalizedSizeLabel = normalizeSizeLabel(sizeLabel);
+  return normalizedSizeLabel ? `${baseName} - ${normalizedSizeLabel}` : baseName;
+}
+
+function buildVariantId(baseName: string, sizeLabel: string) {
+  const normalizedSizeLabel = normalizeSizeLabel(sizeLabel);
+  const baseId = slugify(baseName);
+
+  return normalizedSizeLabel ? `${baseId}-${slugify(normalizedSizeLabel)}` : baseId;
+}
+
+function sortVariants<T extends { sizeLabel: string }>(variants: T[]) {
+  const order = new Map([
+    ['Pequena', 0],
+    ['Media', 1],
+    ['', 2],
+  ]);
+
+  return [...variants].sort((left, right) => {
+    const leftOrder = order.get(normalizeSizeLabel(left.sizeLabel)) ?? 3;
+    const rightOrder = order.get(normalizeSizeLabel(right.sizeLabel)) ?? 3;
+
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+
+    return normalizeSizeLabel(left.sizeLabel).localeCompare(normalizeSizeLabel(right.sizeLabel));
+  });
+}
+
+function formatGroupTags(tags: string[]) {
+  return tags.filter((tag) => tag !== 'Pequena' && tag !== 'Media').join(', ');
+}
+
+function groupMenuItemsForAdmin(menu: MenuItem[]): AdminMenuItemGroup[] {
+  const groups = new Map<string, AdminMenuItemGroup>();
+
+  menu.forEach((item) => {
+    const groupId = item.id.replace(/-(pequena|media)$/i, '');
+    const currentGroup = groups.get(groupId);
+    const nextVariant: ItemVariantFormState = {
+      id: item.id,
+      sizeLabel: getItemSizeLabel(item),
+      price: String(item.price),
+      available: item.available,
+    };
+
+    if (!currentGroup) {
+      groups.set(groupId, {
+        id: groupId,
+        sourceItemIds: [item.id],
+        categoryId: item.categoryId,
+        baseName: getBaseItemName(item.name),
+        description: item.description,
+        image: item.image,
+        prepTime: item.prepTime,
+        tags: formatGroupTags(item.tags),
+        usesGlobalGarnishes: Boolean(item.usesGlobalGarnishes),
+        addonTitle: item.addonTitle ?? '',
+        addonOptions: formatAddonOptions(item.addonOptions),
+        featured: item.featured,
+        dishOfDay: item.dishOfDay,
+        variants: [nextVariant],
+      });
+      return;
+    }
+
+    currentGroup.sourceItemIds.push(item.id);
+    currentGroup.featured = currentGroup.featured || item.featured;
+    currentGroup.dishOfDay = currentGroup.dishOfDay || item.dishOfDay;
+    currentGroup.variants = sortVariants([...currentGroup.variants, nextVariant]);
+
+    if (!currentGroup.image && item.image) {
+      currentGroup.image = item.image;
+    }
+  });
+
+  return [...groups.values()].map((group) => ({
+    ...group,
+    variants: sortVariants(group.variants),
+  }));
+}
+
+function mapItemGroupToForm(itemGroup: AdminMenuItemGroup): ItemFormState {
   return {
-    id: item.id,
-    categoryId: item.categoryId,
-    name: item.name,
-    description: item.description,
-    price: String(item.price),
-    image: item.image,
-    prepTime: item.prepTime,
-    tags: item.tags.join(', '),
-    usesGlobalGarnishes: Boolean(item.usesGlobalGarnishes),
-    addonTitle: item.addonTitle ?? '',
-    addonOptions:
-      item.addonOptions?.map((option) => `${option.name}: ${option.price.toFixed(2)}`).join('\n') ??
-      '',
-    available: item.available,
-    featured: item.featured,
-    dishOfDay: item.dishOfDay,
+    groupId: itemGroup.id,
+    sourceItemIds: itemGroup.sourceItemIds,
+    categoryId: itemGroup.categoryId,
+    baseName: itemGroup.baseName,
+    description: itemGroup.description,
+    image: itemGroup.image,
+    prepTime: itemGroup.prepTime,
+    tags: itemGroup.tags,
+    usesGlobalGarnishes: itemGroup.usesGlobalGarnishes,
+    addonTitle: itemGroup.addonTitle,
+    addonOptions: itemGroup.addonOptions,
+    featured: itemGroup.featured,
+    dishOfDay: itemGroup.dishOfDay,
+    variants: itemGroup.variants,
   };
+}
+
+function getGroupPriceRangeLabel(itemGroup: AdminMenuItemGroup) {
+  const prices = itemGroup.variants
+    .map((variant) => Number(variant.price.replace(',', '.')))
+    .filter((price) => !Number.isNaN(price));
+
+  if (!prices.length) {
+    return 'Sem preco';
+  }
+
+  const minPrice = Math.min(...prices);
+  const maxPrice = Math.max(...prices);
+
+  if (minPrice === maxPrice) {
+    return formatCurrency(minPrice);
+  }
+
+  return `${formatCurrency(minPrice)} a ${formatCurrency(maxPrice)}`;
 }
 
 function parseAddonOptions(value: string) {
@@ -204,6 +380,7 @@ export function AdminPanel({
   const [itemForm, setItemForm] = useState<ItemFormState>({
     ...emptyItem,
     categoryId: siteData.categories[0]?.id ?? '',
+    variants: getDefaultVariants(siteData.categories[0]?.id),
   });
   const [itemEditorId, setItemEditorId] = useState<string | 'new' | null>(null);
   const [imageDropActive, setImageDropActive] = useState(false);
@@ -229,6 +406,7 @@ export function AdminPanel({
     setItemForm({
       ...emptyItem,
       categoryId: siteData.categories[0]?.id ?? '',
+      variants: getDefaultVariants(siteData.categories[0]?.id),
     });
     setImageDropActive(false);
     setImageLoading(false);
@@ -255,9 +433,12 @@ export function AdminPanel({
   };
 
   const startNewItem = (categoryId?: string) => {
+    const resolvedCategoryId = categoryId ?? siteData.categories[0]?.id ?? '';
+
     setItemForm({
       ...emptyItem,
-      categoryId: categoryId ?? siteData.categories[0]?.id ?? '',
+      categoryId: resolvedCategoryId,
+      variants: getDefaultVariants(resolvedCategoryId),
     });
     setItemEditorId('new');
     setImageDropActive(false);
@@ -265,9 +446,9 @@ export function AdminPanel({
     setImageError('');
   };
 
-  const startEditItem = (item: MenuItem) => {
-    setItemForm(mapItemToForm(item));
-    setItemEditorId(item.id);
+  const startEditItem = (itemGroup: AdminMenuItemGroup) => {
+    setItemForm(mapItemGroupToForm(itemGroup));
+    setItemEditorId(itemGroup.id);
     setImageDropActive(false);
     setImageLoading(false);
     setImageError('');
@@ -276,6 +457,48 @@ export function AdminPanel({
   const cancelItemEdit = () => {
     resetItemForm();
     setItemEditorId(null);
+  };
+
+  const updateVariant = (
+    index: number,
+    updater: (current: ItemVariantFormState) => ItemVariantFormState,
+  ) => {
+    setItemForm((current) => ({
+      ...current,
+      variants: current.variants.map((variant, variantIndex) =>
+        variantIndex === index ? updater(variant) : variant,
+      ),
+    }));
+  };
+
+  const addVariant = () => {
+    const existingLabels = itemForm.variants.map((variant) => normalizeSizeLabel(variant.sizeLabel));
+    const nextSuggestedLabel = !existingLabels.includes('Pequena')
+      ? 'Pequena'
+      : !existingLabels.includes('Media')
+        ? 'Media'
+        : '';
+
+    setItemForm((current) => ({
+      ...current,
+      variants: sortVariants([...current.variants, createEmptyVariant(nextSuggestedLabel)]),
+    }));
+  };
+
+  const removeVariant = (index: number) => {
+    setItemForm((current) => {
+      if (current.variants.length === 1) {
+        return {
+          ...current,
+          variants: [createEmptyVariant()],
+        };
+      }
+
+      return {
+        ...current,
+        variants: current.variants.filter((_, variantIndex) => variantIndex !== index),
+      };
+    });
   };
 
   const saveCategory = (event: FormEvent<HTMLFormElement>) => {
@@ -344,40 +567,78 @@ export function AdminPanel({
   const saveItem = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!itemForm.categoryId) {
+    if (!itemForm.categoryId || !itemForm.baseName.trim()) {
       return;
     }
 
-    const nextItem: MenuItem = {
-      id: itemForm.id || slugify(itemForm.name),
-      categoryId: itemForm.categoryId,
-      name: itemForm.name,
-      description: itemForm.description,
-      price: Number(itemForm.price.replace(',', '.')),
-      image: itemForm.image,
-      prepTime: itemForm.prepTime,
-      tags: itemForm.tags
-        .split(',')
-        .map((tag) => tag.trim())
-        .filter(Boolean),
-      usesGlobalGarnishes: itemForm.usesGlobalGarnishes,
-      addonTitle: itemForm.usesGlobalGarnishes ? undefined : itemForm.addonTitle.trim() || undefined,
-      addonOptions: itemForm.usesGlobalGarnishes ? undefined : parseAddonOptions(itemForm.addonOptions),
-      available: itemForm.available,
-      featured: itemForm.featured,
-      dishOfDay: itemForm.dishOfDay,
-    };
+    const cleanedBaseName = itemForm.baseName.trim();
+    const commonTags = itemForm.tags
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean)
+      .filter((tag) => tag !== 'Pequena' && tag !== 'Media');
+    const validVariants = sortVariants(
+      itemForm.variants
+        .map((variant) => ({
+          ...variant,
+          sizeLabel: normalizeSizeLabel(variant.sizeLabel),
+          price: variant.price.trim(),
+        }))
+        .filter((variant) => variant.price),
+    );
 
-    const menuBase = nextItem.dishOfDay
-      ? siteData.menu.map((item) => ({ ...item, dishOfDay: false }))
-      : siteData.menu;
-    const exists = menuBase.some((item) => item.id === nextItem.id);
+    if (!validVariants.length) {
+      window.alert('Adicione pelo menos um tamanho com preco para salvar este item.');
+      return;
+    }
+
+    const seenSizeLabels = new Set<string>();
+    const duplicatedSize = validVariants.find((variant) => {
+      const key = normalizeSizeLabel(variant.sizeLabel) || 'unico';
+
+      if (seenSizeLabels.has(key)) {
+        return true;
+      }
+
+      seenSizeLabels.add(key);
+      return false;
+    });
+
+    if (duplicatedSize) {
+      window.alert('Nao repita o mesmo tamanho no mesmo item.');
+      return;
+    }
+
+    const nextItems: MenuItem[] = validVariants.map((variant) => {
+      const sizeLabel = normalizeSizeLabel(variant.sizeLabel);
+
+      return {
+        id: buildVariantId(cleanedBaseName, sizeLabel),
+        categoryId: itemForm.categoryId,
+        name: buildVariantName(cleanedBaseName, sizeLabel),
+        description: itemForm.description,
+        price: Number(variant.price.replace(',', '.')),
+        image: itemForm.image,
+        prepTime: itemForm.prepTime,
+        tags: sizeLabel ? [...commonTags, sizeLabel] : commonTags,
+        usesGlobalGarnishes: itemForm.usesGlobalGarnishes,
+        addonTitle: itemForm.usesGlobalGarnishes ? undefined : itemForm.addonTitle.trim() || undefined,
+        addonOptions: itemForm.usesGlobalGarnishes ? undefined : parseAddonOptions(itemForm.addonOptions),
+        available: variant.available,
+        featured: itemForm.featured,
+        dishOfDay: itemForm.dishOfDay,
+      };
+    });
+
+    const sourceItemIds = itemForm.sourceItemIds;
+    const filteredMenu = siteData.menu.filter((item) => !sourceItemIds.includes(item.id));
+    const menuBase = itemForm.dishOfDay
+      ? filteredMenu.map((item) => ({ ...item, dishOfDay: false }))
+      : filteredMenu;
 
     commit({
       ...siteData,
-      menu: exists
-        ? menuBase.map((item) => (item.id === nextItem.id ? nextItem : item))
-        : [...menuBase, nextItem],
+      menu: [...menuBase, ...nextItems],
     });
 
     resetItemForm();
@@ -394,7 +655,8 @@ export function AdminPanel({
     setImageError('');
 
     try {
-      const result = await uploadSiteImage(file, 'menu-items', itemForm.name || 'item-cardapio');
+      const itemName = itemForm.baseName || 'item-cardapio';
+      const result = await uploadSiteImage(file, 'menu-items', itemName);
       setItemForm((current) => ({ ...current, image: result.url }));
       setImageError(result.warning || '');
     } catch {
@@ -440,17 +702,17 @@ export function AdminPanel({
     }
   };
 
-  const removeItem = (itemId: string) => {
-    if (!window.confirm('Deseja remover este item do cardapio?')) {
+  const removeItem = (itemGroup: AdminMenuItemGroup) => {
+    if (!window.confirm('Deseja remover este item do cardapio e todos os tamanhos dele?')) {
       return;
     }
 
     commit({
       ...siteData,
-      menu: siteData.menu.filter((item) => item.id !== itemId),
+      menu: siteData.menu.filter((item) => !itemGroup.sourceItemIds.includes(item.id)),
     });
 
-    if (itemForm.id === itemId) {
+    if (itemForm.groupId === itemGroup.id) {
       resetItemForm();
       setItemEditorId(null);
     }
@@ -481,7 +743,10 @@ export function AdminPanel({
     setLoginForm({ username: '', password: '' });
   };
 
-  const availableCount = siteData.menu.filter((item) => item.available).length;
+  const groupedMenuItems = groupMenuItemsForAdmin(siteData.menu);
+  const availableCount = groupedMenuItems.filter((item) =>
+    item.variants.some((variant) => variant.available),
+  ).length;
   const garnishConfig = siteData.site.garnishConfig ?? {
     title: 'Guarnicoes',
     maxSelections: 2,
@@ -506,9 +771,9 @@ export function AdminPanel({
       : 'Sem Supabase configurado, as alteracoes ficam somente neste navegador.';
   const menuGroups = siteData.categories.map((category) => ({
     category,
-    items: siteData.menu.filter((item) => item.categoryId === category.id),
+    items: groupedMenuItems.filter((item) => item.categoryId === category.id),
   }));
-  const uncategorizedItems = siteData.menu.filter(
+  const uncategorizedItems = groupedMenuItems.filter(
     (item) => !siteData.categories.some((category) => category.id === item.categoryId),
   );
 
@@ -590,8 +855,10 @@ export function AdminPanel({
       <label className="field">
         <span>Nome</span>
         <input
-          value={itemForm.name}
-          onChange={(event) => setItemForm((current) => ({ ...current, name: event.target.value }))}
+          value={itemForm.baseName}
+          onChange={(event) =>
+            setItemForm((current) => ({ ...current, baseName: event.target.value }))
+          }
           required
         />
       </label>
@@ -603,17 +870,6 @@ export function AdminPanel({
           onChange={(event) =>
             setItemForm((current) => ({ ...current, description: event.target.value }))
           }
-          required
-        />
-      </label>
-      <label className="field">
-        <span>Preco</span>
-        <input
-          type="number"
-          min="0"
-          step="0.01"
-          value={itemForm.price}
-          onChange={(event) => setItemForm((current) => ({ ...current, price: event.target.value }))}
           required
         />
       </label>
@@ -659,7 +915,10 @@ export function AdminPanel({
           >
             {itemForm.image ? (
               <div className="image-upload-preview">
-                <img src={itemForm.image} alt={`Preview de ${itemForm.name || 'imagem do item'}`} />
+                <img
+                  src={itemForm.image}
+                  alt={`Preview de ${itemForm.baseName || 'imagem do item'}`}
+                />
               </div>
             ) : (
               <div className="image-upload-empty">
@@ -697,6 +956,72 @@ export function AdminPanel({
           {imageError ? <p className="error-text">{imageError}</p> : null}
         </div>
       </label>
+      <div className="field full-span">
+        <span>Tamanhos e precos</span>
+        <div className="admin-size-list">
+          {itemForm.variants.map((variant, index) => (
+            <div key={`${variant.id ?? 'novo'}-${index}`} className="admin-size-row">
+              <label className="field">
+                <span>Tamanho</span>
+                <select
+                  value={normalizeSizeLabel(variant.sizeLabel) || 'unico'}
+                  onChange={(event) =>
+                    updateVariant(index, (current) => ({
+                      ...current,
+                      sizeLabel: event.target.value === 'unico' ? '' : event.target.value,
+                    }))
+                  }
+                >
+                  <option value="unico">Item unico</option>
+                  <option value="Pequena">Pequena</option>
+                  <option value="Media">Media</option>
+                </select>
+              </label>
+              <label className="field">
+                <span>Preco</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={variant.price}
+                  onChange={(event) =>
+                    updateVariant(index, (current) => ({
+                      ...current,
+                      price: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label className="toggle-option admin-size-toggle">
+                <input
+                  type="checkbox"
+                  checked={variant.available}
+                  onChange={(event) =>
+                    updateVariant(index, (current) => ({
+                      ...current,
+                      available: event.target.checked,
+                    }))
+                  }
+                />
+                <span>Disponivel</span>
+              </label>
+              <button
+                type="button"
+                className="ghost-button danger-button"
+                onClick={() => removeVariant(index)}
+                disabled={itemForm.variants.length === 1}
+              >
+                Remover tamanho
+              </button>
+            </div>
+          ))}
+        </div>
+        <div className="action-row top-gap">
+          <button type="button" className="secondary-button" onClick={addVariant}>
+            Adicionar tamanho
+          </button>
+        </div>
+      </div>
       <label className="field">
         <span>Tempo de preparo</span>
         <input
@@ -715,16 +1040,6 @@ export function AdminPanel({
         />
       </label>
       <div className="toggle-group full-span">
-        <label className="toggle-option">
-          <input
-            type="checkbox"
-            checked={itemForm.available}
-            onChange={(event) =>
-              setItemForm((current) => ({ ...current, available: event.target.checked }))
-            }
-          />
-          <span>Disponivel</span>
-        </label>
         <label className="toggle-option">
           <input
             type="checkbox"
@@ -1084,7 +1399,7 @@ export function AdminPanel({
                   icon="plate"
                   eyebrow="Cardapio"
                   title="Categorias e itens do cardapio"
-                  summary={`${siteData.categories.length} categorias e ${siteData.menu.length} itens cadastrados`}
+                  summary={`${siteData.categories.length} categorias e ${groupedMenuItems.length} itens cadastrados`}
                   meta="Tudo abre e edita no mesmo lugar da lista."
                 >
                   <section className="admin-section">
@@ -1238,23 +1553,35 @@ export function AdminPanel({
                                   className={`menu-admin-card ${itemEditorId === item.id ? 'is-editing' : ''}`}
                                 >
                                   {item.image ? (
-                                    <img src={item.image} alt={item.name} />
+                                    <img src={item.image} alt={item.baseName} />
                                   ) : (
                                     <div className="menu-admin-image-placeholder">Sem imagem</div>
                                   )}
                                   <div>
                                     <div className="menu-admin-header">
-                                      <strong>{item.name}</strong>
-                                      <span>{formatCurrency(item.price)}</span>
+                                      <strong>{item.baseName}</strong>
+                                      <span>{getGroupPriceRangeLabel(item)}</span>
                                     </div>
                                     <p>{item.description}</p>
                                     <div className="chip-row">
+                                      {item.variants.map((variant) => (
+                                        <span key={`${item.id}-${variant.sizeLabel || 'unico'}`} className="mini-chip muted-chip">
+                                          {normalizeSizeLabel(variant.sizeLabel) || 'Item unico'}:{' '}
+                                          {formatCurrency(Number(variant.price.replace(',', '.')) || 0)}
+                                        </span>
+                                      ))}
+                                    </div>
+                                    <div className="chip-row">
                                       <span
                                         className={`mini-chip ${
-                                          item.available ? 'success-chip' : 'muted-chip'
+                                          item.variants.some((variant) => variant.available)
+                                            ? 'success-chip'
+                                            : 'muted-chip'
                                         }`}
                                       >
-                                        {item.available ? 'Disponivel' : 'Indisponivel'}
+                                        {item.variants.some((variant) => variant.available)
+                                          ? 'Disponivel'
+                                          : 'Indisponivel'}
                                       </span>
                                       {item.usesGlobalGarnishes ? (
                                         <span className="mini-chip muted-chip">Guarnicao global</span>
@@ -1278,7 +1605,7 @@ export function AdminPanel({
                                     <button
                                       type="button"
                                       className="ghost-button danger-button"
-                                      onClick={() => removeItem(item.id)}
+                                      onClick={() => removeItem(item)}
                                     >
                                       Remover
                                     </button>
@@ -1324,16 +1651,24 @@ export function AdminPanel({
                                   className={`menu-admin-card ${itemEditorId === item.id ? 'is-editing' : ''}`}
                                 >
                                   {item.image ? (
-                                    <img src={item.image} alt={item.name} />
+                                    <img src={item.image} alt={item.baseName} />
                                   ) : (
                                     <div className="menu-admin-image-placeholder">Sem imagem</div>
                                   )}
                                   <div>
                                     <div className="menu-admin-header">
-                                      <strong>{item.name}</strong>
-                                      <span>{formatCurrency(item.price)}</span>
+                                      <strong>{item.baseName}</strong>
+                                      <span>{getGroupPriceRangeLabel(item)}</span>
                                     </div>
                                     <p>{item.description}</p>
+                                    <div className="chip-row">
+                                      {item.variants.map((variant) => (
+                                        <span key={`${item.id}-${variant.sizeLabel || 'unico'}`} className="mini-chip muted-chip">
+                                          {normalizeSizeLabel(variant.sizeLabel) || 'Item unico'}:{' '}
+                                          {formatCurrency(Number(variant.price.replace(',', '.')) || 0)}
+                                        </span>
+                                      ))}
+                                    </div>
                                   </div>
                                   <div className="row-actions">
                                     <button
@@ -1346,7 +1681,7 @@ export function AdminPanel({
                                     <button
                                       type="button"
                                       className="ghost-button danger-button"
-                                      onClick={() => removeItem(item.id)}
+                                      onClick={() => removeItem(item)}
                                     >
                                       Remover
                                     </button>

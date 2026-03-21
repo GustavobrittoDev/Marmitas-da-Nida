@@ -2027,6 +2027,29 @@ h3,
   line-height: 1.32;
 }
 
+.admin-size-list {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.45rem;
+}
+
+.admin-size-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto;
+  gap: 0.6rem;
+  align-items: end;
+  padding: 0.72rem;
+  border-radius: 0.95rem;
+  border: 1px solid rgba(18, 58, 103, 0.08);
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.admin-size-toggle {
+  min-height: 2.8rem;
+  align-self: stretch;
+  justify-content: center;
+}
+
 .menu-admin-header {
   gap: 0.55rem;
   align-items: flex-start;
@@ -2811,6 +2834,10 @@ h3,
 
   .menu-admin-grid {
     gap: 0.6rem;
+  }
+
+  .admin-size-row {
+    grid-template-columns: 1fr;
   }
 
   .menu-admin-card img,
