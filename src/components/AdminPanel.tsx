@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, useState } from 'react';
+import { ChangeEvent, DragEvent, FormEvent, ReactNode, useRef, useState } from 'react';
 import { Category, CategoryIcon, MenuItem, SiteData } from '../types';
 import { formatCurrency, slugify } from '../utils/format';
 import { Icon, IconName } from './Icon';
@@ -113,6 +113,61 @@ function parseAddonOptions(value: string) {
     .filter((option) => option.name);
 }
 
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+        return;
+      }
+
+      reject(new Error('Formato de imagem invalido.'));
+    };
+
+    reader.onerror = () => reject(new Error('Nao foi possivel ler a imagem.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImageElement(source: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Nao foi possivel carregar a imagem.'));
+    image.src = source;
+  });
+}
+
+async function optimizeImageFile(file: File) {
+  if (file.type === 'image/svg+xml') {
+    return readFileAsDataUrl(file);
+  }
+
+  const source = await readFileAsDataUrl(file);
+  const image = await loadImageElement(source);
+  const maxDimension = 1200;
+  const ratio = Math.min(maxDimension / image.width, maxDimension / image.height, 1);
+  const width = Math.max(1, Math.round(image.width * ratio));
+  const height = Math.max(1, Math.round(image.height * ratio));
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+
+  if (!context) {
+    throw new Error('Nao foi possivel preparar a imagem.');
+  }
+
+  canvas.width = width;
+  canvas.height = height;
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, width, height);
+  context.drawImage(image, 0, 0, width, height);
+
+  return canvas.toDataURL('image/jpeg', 0.82);
+}
+
 function AdminDrawerSection({
   sectionKey,
   openSection,
@@ -174,6 +229,7 @@ export function AdminPanel({
   siteData,
   onChange,
 }: AdminPanelProps) {
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [openSection, setOpenSection] = useState<AdminSectionKey | null>('overview');
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [loginError, setLoginError] = useState('');
@@ -185,6 +241,9 @@ export function AdminPanel({
     categoryId: siteData.categories[0]?.id ?? '',
   });
   const [itemEditorId, setItemEditorId] = useState<string | 'new' | null>(null);
+  const [imageDropActive, setImageDropActive] = useState(false);
+  const [imageLoading, setImageLoading] = useState(false);
+  const [imageError, setImageError] = useState('');
 
   if (!open) {
     return null;
@@ -210,6 +269,13 @@ export function AdminPanel({
       ...emptyItem,
       categoryId: siteData.categories[0]?.id ?? '',
     });
+    setImageDropActive(false);
+    setImageLoading(false);
+    setImageError('');
+
+    if (imageInputRef.current) {
+      imageInputRef.current.value = '';
+    }
   };
 
   const startNewCategory = () => {
@@ -233,11 +299,17 @@ export function AdminPanel({
       categoryId: categoryId ?? siteData.categories[0]?.id ?? '',
     });
     setItemEditorId('new');
+    setImageDropActive(false);
+    setImageLoading(false);
+    setImageError('');
   };
 
   const startEditItem = (item: MenuItem) => {
     setItemForm(mapItemToForm(item));
     setItemEditorId(item.id);
+    setImageDropActive(false);
+    setImageLoading(false);
+    setImageError('');
   };
 
   const cancelItemEdit = () => {
@@ -348,6 +420,61 @@ export function AdminPanel({
 
     resetItemForm();
     setItemEditorId(null);
+  };
+
+  const applyImageFile = async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      setImageError('Escolha um arquivo de imagem valido.');
+      return;
+    }
+
+    setImageLoading(true);
+    setImageError('');
+
+    try {
+      const optimizedImage = await optimizeImageFile(file);
+      setItemForm((current) => ({ ...current, image: optimizedImage }));
+    } catch {
+      setImageError('Nao foi possivel preparar a imagem. Tente outro arquivo.');
+    } finally {
+      setImageLoading(false);
+
+      if (imageInputRef.current) {
+        imageInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleImageInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    void applyImageFile(file);
+  };
+
+  const handleImageDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setImageDropActive(false);
+
+    const file = event.dataTransfer.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    void applyImageFile(file);
+  };
+
+  const removeItemImage = () => {
+    setItemForm((current) => ({ ...current, image: '' }));
+    setImageError('');
+
+    if (imageInputRef.current) {
+      imageInputRef.current.value = '';
+    }
   };
 
   const removeItem = (itemId: string) => {
@@ -523,13 +650,85 @@ export function AdminPanel({
           required
         />
       </label>
-      <label className="field">
+      <label className="field full-span">
         <span>Imagem opcional</span>
-        <input
-          value={itemForm.image}
-          onChange={(event) => setItemForm((current) => ({ ...current, image: event.target.value }))}
-          placeholder="/images/produtos/meu-prato.jpg"
-        />
+        <div className="image-upload-field">
+          <input
+            ref={imageInputRef}
+            className="image-upload-input"
+            type="file"
+            accept="image/*"
+            onChange={handleImageInputChange}
+          />
+          <div
+            className={`image-dropzone ${imageDropActive ? 'is-dragging' : ''}`}
+            role="button"
+            tabIndex={0}
+            onClick={() => imageInputRef.current?.click()}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                imageInputRef.current?.click();
+              }
+            }}
+            onDragOver={(event) => {
+              event.preventDefault();
+              setImageDropActive(true);
+            }}
+            onDragEnter={(event) => {
+              event.preventDefault();
+              setImageDropActive(true);
+            }}
+            onDragLeave={(event) => {
+              event.preventDefault();
+
+              if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                return;
+              }
+
+              setImageDropActive(false);
+            }}
+            onDrop={handleImageDrop}
+          >
+            {itemForm.image ? (
+              <div className="image-upload-preview">
+                <img src={itemForm.image} alt={`Preview de ${itemForm.name || 'imagem do item'}`} />
+              </div>
+            ) : (
+              <div className="image-upload-empty">
+                <div className="image-upload-empty-icon">
+                  <Icon name="image" className="small-icon" />
+                </div>
+                <strong>Arraste a imagem aqui</strong>
+                <p>Ou toque no botao abaixo para escolher na galeria.</p>
+              </div>
+            )}
+          </div>
+          <div className="image-upload-actions">
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => imageInputRef.current?.click()}
+              disabled={imageLoading}
+            >
+              {imageLoading ? 'Enviando imagem...' : 'Escolher imagem'}
+            </button>
+            {itemForm.image ? (
+              <button type="button" className="ghost-button" onClick={removeItemImage}>
+                Remover imagem
+              </button>
+            ) : null}
+          </div>
+          <p className="image-upload-note">
+            A imagem enviada fica salva no item e aparece no site assim que voce salvar.
+          </p>
+          <input
+            value={itemForm.image}
+            onChange={(event) => setItemForm((current) => ({ ...current, image: event.target.value }))}
+            placeholder="Ou cole aqui a URL de uma imagem"
+          />
+          {imageError ? <p className="error-text">{imageError}</p> : null}
+        </div>
       </label>
       <label className="field">
         <span>Tempo de preparo</span>

@@ -22,7 +22,8 @@ export type IconName =
   | 'sparkles'
   | 'check'
   | 'close'
-  | 'edit';
+  | 'edit'
+  | 'image';
 
 type IconProps = {
   name: IconName;
@@ -220,6 +221,14 @@ export function Icon({ name, className }: IconProps) {
         <SvgIcon className={className}>
           <path d="m14 5 5 5" />
           <path d="M4 20h4.5L18 10.5 13.5 6 4 15.5V20Z" />
+        </SvgIcon>
+      );
+    case 'image':
+      return (
+        <SvgIcon className={className}>
+          <rect x="4" y="5" width="16" height="14" rx="2" />
+          <circle cx="9" cy="10" r="1.3" />
+          <path d="m7 17 3.8-4 2.7 2.8 1.8-1.8L17 17" />
         </SvgIcon>
       );
     default:
