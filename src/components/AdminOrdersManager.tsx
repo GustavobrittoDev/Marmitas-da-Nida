@@ -421,10 +421,17 @@ export function AdminOrdersManager({
 
                               <div className="admin-order-tile-body">
                                 <strong>{order.customerName}</strong>
-                                <p>
-                                  {formatOrderDateTime(order.createdAt)} - {getOrderTypeLabel(order)} -{' '}
-                                  {getPaymentLabel(order)}
-                                </p>
+                                <div className="admin-order-meta-row">
+                                  <span className="admin-order-meta-tag">
+                                    {formatOrderDateTime(order.createdAt)}
+                                  </span>
+                                  <span className="admin-order-meta-tag">
+                                    {getOrderTypeLabel(order)}
+                                  </span>
+                                  <span className="admin-order-meta-tag">
+                                    {getPaymentLabel(order)}
+                                  </span>
+                                </div>
                               </div>
 
                               <div className="admin-order-chips">
@@ -438,11 +445,13 @@ export function AdminOrdersManager({
 
                               <div className="admin-order-tile-items">
                                 {previewItems.map((item) => (
-                                  <p key={item.id}>
+                                  <p key={item.id} className="admin-order-preview-line">
                                     {item.quantity}x {item.name}
                                   </p>
                                 ))}
-                                {extraItems > 0 ? <p>+ {extraItems} item(ns)</p> : null}
+                                {extraItems > 0 ? (
+                                  <p className="admin-order-preview-line">+ {extraItems} item(ns)</p>
+                                ) : null}
                               </div>
 
                               <div className="admin-order-tile-footer">
