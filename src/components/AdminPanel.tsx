@@ -1,5 +1,6 @@
 import { ChangeEvent, DragEvent, FormEvent, ReactNode, useRef, useState } from 'react';
 import { AdminOrdersManager } from './AdminOrdersManager';
+import { uploadSiteImage } from '../lib/siteImages';
 import { Category, CategoryIcon, MenuItem, OrderRecord, OrderStatus, SiteData } from '../types';
 import { formatCurrency, slugify } from '../utils/format';
 import { Icon, IconName } from './Icon';
@@ -126,61 +127,6 @@ function parseAddonOptions(value: string) {
 
 function formatAddonOptions(options?: { name: string; price: number }[]) {
   return options?.map((option) => `${option.name}: ${option.price.toFixed(2)}`).join('\n') ?? '';
-}
-
-function readFileAsDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        resolve(reader.result);
-        return;
-      }
-
-      reject(new Error('Formato de imagem invalido.'));
-    };
-
-    reader.onerror = () => reject(new Error('Nao foi possivel ler a imagem.'));
-    reader.readAsDataURL(file);
-  });
-}
-
-function loadImageElement(source: string) {
-  return new Promise<HTMLImageElement>((resolve, reject) => {
-    const image = new Image();
-
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error('Nao foi possivel carregar a imagem.'));
-    image.src = source;
-  });
-}
-
-async function optimizeImageFile(file: File) {
-  if (file.type === 'image/svg+xml') {
-    return readFileAsDataUrl(file);
-  }
-
-  const source = await readFileAsDataUrl(file);
-  const image = await loadImageElement(source);
-  const maxDimension = 1200;
-  const ratio = Math.min(maxDimension / image.width, maxDimension / image.height, 1);
-  const width = Math.max(1, Math.round(image.width * ratio));
-  const height = Math.max(1, Math.round(image.height * ratio));
-  const canvas = document.createElement('canvas');
-  const context = canvas.getContext('2d');
-
-  if (!context) {
-    throw new Error('Nao foi possivel preparar a imagem.');
-  }
-
-  canvas.width = width;
-  canvas.height = height;
-  context.fillStyle = '#ffffff';
-  context.fillRect(0, 0, width, height);
-  context.drawImage(image, 0, 0, width, height);
-
-  return canvas.toDataURL('image/jpeg', 0.82);
 }
 
 function AdminDrawerSection({
@@ -448,8 +394,9 @@ export function AdminPanel({
     setImageError('');
 
     try {
-      const optimizedImage = await optimizeImageFile(file);
-      setItemForm((current) => ({ ...current, image: optimizedImage }));
+      const result = await uploadSiteImage(file, 'menu-items', itemForm.name || 'item-cardapio');
+      setItemForm((current) => ({ ...current, image: result.url }));
+      setImageError(result.warning || '');
     } catch {
       setImageError('Nao foi possivel preparar a imagem. Tente outro arquivo.');
     } finally {
